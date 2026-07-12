@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>到貨核點</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "PingFang TC", sans-serif;
+  background: #f5f5f7; color: #1a1a1a;
+  height: 100vh; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+
+.hdr {
+  background: #222; color: #fff;
+  height: 50px; padding: 0 12px; display: flex; align-items: center; gap: 8px;
+  flex-shrink: 0; border-bottom: 1px solid #444;
+}
+.hdr h1 { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+.hdr .date-badge {
+  background: #333; border-radius: 7px; padding: 3px 10px;
+  font-size: 12px; color: #aaa; flex-shrink: 0;
+}
+.hdr .date-badge span { color: #fff; font-weight: 600; }
+.hdr .sp { flex: 1; }
+.hdr .summary { font-size: 12px; color: #aaa; flex-shrink: 0; }
+.hdr .reload-btn {
+  background: #3a3a3a; border: 1px solid #555; color: #aaa; border-radius: 7px;
+  padding: 0 9px; height: 28px; font-size: 11px; cursor: pointer; flex-shrink: 0;
+}
+
+/* Nav tabs（整合進 header） */
+.nav-tab {
+  height: 26px; padding: 0 11px; border: none; border-radius: 6px;
+  font-size: 12px; font-weight: 600; cursor: pointer; color: #666;
+  background: transparent; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+}
+.nav-tab.active { background: #007aff; color: #fff; }
+.nav-divider { width: 1px; height: 20px; background: #444; margin: 0 4px; flex-shrink: 0; }
+
+.search-bar {
+  background: rgba(245,245,247,0.95); backdrop-filter: blur(8px);
+  padding: 8px 16px; border-bottom: 1px solid #e0e0e0;
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.search-inp {
+  width: 200px; flex-shrink: 0; height: 36px;
+  border: 1.5px solid #d0d0d0; border-radius: 10px;
+  padding: 0 12px 0 34px; font-size: 14px; background: #fff; color: #1a1a1a;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23aaa' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: 10px center;
+}
+.search-inp:focus { outline: none; border-color: #007aff; }
+.zone-chips {
+  flex: 1; display: flex; gap: 6px; overflow-x: auto;
+  scrollbar-width: none; -ms-overflow-style: none;
+}
+.zone-chips::-webkit-scrollbar { display: none; }
+.zone-chip {
+  flex-shrink: 0; height: 36px; padding: 0 14px;
+  background: #fff; border: 1.5px solid #d0d0d0; border-radius: 18px;
+  font-size: 13px; font-weight: 600; color: #555; cursor: pointer;
+  white-space: nowrap; -webkit-tap-highlight-color: transparent;
+}
+.zone-chip:active { background: #e8e8ea; }
+
+/*
+  捲動架構：
+  .scroll-outer  → 真正的捲軸容器（overflow-y: scroll）
+    .vp-window   → sticky 視窗，固定在頂部，column-count:2，overflow:hidden
+      .flow      → 所有品項在這裡，marginTop 跟著 scrollTop 往上移
+    .spacer      → 提供足夠的捲軸高度（JS 計算後寫入）
+*/
+.scroll-outer {
+  flex: 1;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  position: relative;
+  scroll-snap-type: y mandatory; /* 強制每次停在卡片頂部 */
+}
+/* 隱形磁吸點，由 JS 在每張卡片對應的 scrollTop 位置注入 */
+.snap-pt {
+  position: absolute; left: 0; width: 1px; height: 1px;
+  scroll-snap-align: start;
+  scroll-snap-stop: always; /* 強制每次只能停在下一格，不能跳過 */
+  pointer-events: none;
+}
+
+.vp-window {
+  position: sticky;
+  top: 0;
+  /* height 由 JS 寫入 */
+  overflow: hidden;
+  column-count: 2;
+  column-gap: 16px;
+  padding: 16px 16px 16px 16px;
+  background: #f5f5f7;
+}
+
+.flow {
+  /* marginTop 由 JS 跟著 scrollTop 更新 */
+}
+
+.zone-section { margin-bottom: 20px; }
+.zone-title {
+  font-size: 15px; font-weight: 700; color: #555;
+  letter-spacing: 0.5px; border-bottom: 2px solid #ddd; padding-bottom: 6px;
+  margin-bottom: 10px;
+  break-inside: avoid;
+}
+
+.item-row {
+  display: flex; flex-direction: row; align-items: center;
+  justify-content: space-between; gap: 12px;
+  padding: 10px 14px; background: #fff; border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  border: 1.5px solid transparent;
+  margin-bottom: 10px;
+  break-inside: avoid;
+}
+.item-row.partial { border-color: #ff9500; background: #fffbf0; }
+.item-row.done    { opacity: 0.55; border-color: #34c759; background: #f8fff8; }
+
+.item-name-group { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.item-name { font-size: 15px; font-weight: 600; color: #1a1a1a; line-height: 1.3; }
+
+.item-partial-tag {
+  align-self: flex-start;
+  background: #fff3cd; color: #856404;
+  border-radius: 5px; padding: 2px 6px; font-size: 11px; font-weight: 600;
+}
+
+.item-controls { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+
+.item-qty-row {
+  display: flex; align-items: baseline; gap: 3px;
+  justify-content: flex-end; min-width: 54px;
+}
+.item-qty-num { font-size: 26px; font-weight: 700; color: #1a1a1a; line-height: 1; }
+.item-qty-unit { font-size: 14px; font-weight: 600; color: #555; }
+
+.item-actions { display: flex; align-items: center; gap: 6px; }
+.partial-wrap { display: flex; align-items: center; gap: 4px; }
+.partial-inp {
+  width: 52px; height: 36px; border: 1.5px solid #d0d0d0; border-radius: 8px;
+  text-align: center; font-size: 15px; font-weight: 700; color: #1a1a1a; background: #fff;
+}
+.partial-inp:focus { outline: none; border-color: #ff9500; }
+.unit-hint { font-size: 12px; color: #888; }
+.btn-partial {
+  height: 36px; padding: 0 10px; background: #ff9500; border: none; border-radius: 8px;
+  color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.btn-all {
+  height: 36px; padding: 0 14px; background: #34c759; border: none; border-radius: 8px;
+  color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap;
+}
+.btn-undo {
+  height: 36px; padding: 0 14px; background: transparent;
+  border: 1.5px solid #bbb; border-radius: 8px;
+  color: #555; font-size: 13px; cursor: pointer; white-space: nowrap;
+}
+.btn-undo:active { background: #f0f0f0; }
+
+.empty-state { text-align: center; padding: 60px 20px; color: #aaa; font-size: 15px; line-height: 1.8; }
+.all-done-banner {
+  background: #34c759; color: #fff; text-align: center;
+  padding: 20px; border-radius: 14px; margin-bottom: 12px;
+  font-size: 16px; font-weight: 700;
+  break-inside: avoid;
+}
+.toast {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+  background: #1c1c1e; color: #fff; padding: 10px 24px; border-radius: 20px;
+  font-size: 14px; font-weight: 600; opacity: 0; transition: opacity .2s;
+  pointer-events: none; z-index: 9999; white-space: nowrap;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>實驗室耗材_到貨</h1>
+  <div class="date-badge">訂購日：<span id="receiptDate">—</span></div>
+  <div class="sp"></div>
+  <span class="summary" id="summaryBadge">—</span>
+  <button class="reload-btn" onclick="loadReceipt()">重新載入</button>
+  <div class="nav-divider"></div>
+  <button class="nav-tab" onclick="location.href='count.html'">① 盤點</button>
+  <button class="nav-tab" onclick="location.href='order.html'">② 訂單</button>
+  <button class="nav-tab active">③ 到貨</button>
+</div>
+
+<div class="search-bar">
+  <input class="search-inp" id="searchInp" type="search" placeholder="搜尋品項…" oninput="renderAll()">
+  <div class="zone-chips" id="zoneChips"></div>
+</div>
+
+<div class="scroll-outer" id="scrollOuter">
+  <div class="vp-window" id="vpWindow">
+    <div class="flow" id="flow"></div>
+  </div>
+  <!-- 這個 spacer 讓捲軸有足夠的滾動空間（高度由 JS 計算） -->
+  <div id="spacer" style="width:1px;"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwdoAng6aOcufhV9E_OmrBTDbOV28R_1HMsIg3WKyocHWew0o5LYCX6fQdaJs5kDGXj/exec";
+let receiptData = null;
+let zonePositions = {}; // 記錄每個 zone 在單欄 flow 中的實際位置，用於正確導覽
+
+const scrollOuter = () => document.getElementById("scrollOuter");
+const vpWindow    = () => document.getElementById("vpWindow");
+const flowEl      = () => document.getElementById("flow");
+const spacerEl    = () => document.getElementById("spacer");
+
+window.addEventListener("resize", initLayout);
+
+/* 捲軸事件：把內容往上拉 */
+document.getElementById("scrollOuter").addEventListener("scroll", function() {
+  flowEl().style.marginTop = `-${this.scrollTop}px`;
+});
+
+async function loadReceipt() {
+  flowEl().innerHTML = `<div class="empty-state">載入中…</div>`;
+  try {
+    const res = await fetch(`${GAS_URL}?action=receipt`);
+    receiptData = await res.json();
+    renderAll();
+  } catch(e) {
+    flowEl().innerHTML = `<div class="empty-state">載入失敗：${e.message}</div>`;
+  }
+}
+
+function fmtReceiptDate(raw) {
+  if (!raw) return "—";
+  const WD = ["日","一","二","三","四","五","六"];
+  const d = new Date(raw);
+  if (isNaN(d)) return raw;
+  return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 星期${WD[d.getDay()]} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+function scrollToZone(zone) {
+  const pos = zonePositions[zone];
+  if (pos == null) return;
+  scrollOuter().scrollTo({ top: pos, behavior: "smooth" });
+}
+
+/* 計算捲軸空間：
+   把視窗暫時展開成單欄量出總高度，再算回兩欄需要多少捲動範圍 */
+function initLayout() {
+  const outer  = scrollOuter();
+  const vp     = vpWindow();
+  const flow   = flowEl();
+  const spacer = spacerEl();
+
+  const vpH = outer.clientHeight;
+
+  /* 先暫時單欄、自由高度，量出所有內容展開後的總高度 + 各 zone 位置 */
+  vp.style.height      = "auto";
+  vp.style.columnCount = "1";
+  vp.style.overflow    = "visible";
+  const singleColH = flow.scrollHeight;
+
+  /* 趁單欄時記下每個 zone 的真實位置（供 scrollToZone 使用） */
+  zonePositions = {};
+  document.querySelectorAll(".zone-section[id^='zone-']").forEach(el => {
+    const zone = el.id.replace("zone-", "");
+    zonePositions[zone] = el.offsetTop;
+  });
+
+  /* 同時收集所有卡片位置，供磁吸點使用 */
+  const itemTops = [0]; // 起始位置也是磁吸點
+  document.querySelectorAll(".item-row").forEach(el => {
+    itemTops.push(el.offsetTop);
+  });
+
+  /* 恢復雙欄視窗 */
+  vp.style.height      = vpH + "px";
+  vp.style.columnCount = "2";
+  vp.style.overflow    = "hidden";
+
+  const contentArea = vpH - 32;
+  const scrollRange = Math.max(0, singleColH - contentArea * 2);
+  spacer.style.height = scrollRange + "px";
+
+  /* 清除舊磁吸點，注入新的（位置 = 各卡片在 scrollOuter 的 scrollTop） */
+  outer.querySelectorAll(".snap-pt").forEach(e => e.remove());
+  const seen = new Set();
+  itemTops.forEach(pos => {
+    const snapped = Math.min(Math.round(pos), scrollRange);
+    if (seen.has(snapped)) return;
+    seen.add(snapped);
+    const pt = document.createElement("div");
+    pt.className = "snap-pt";
+    pt.style.top = snapped + "px";
+    outer.appendChild(pt);
+  });
+
+  /* 重設捲動位置（避免 resize 後內容錯位） */
+  const cur = outer.scrollTop;
+  flow.style.marginTop = `-${cur}px`;
+}
+
+function renderAll() {
+  const q = (document.getElementById("searchInp")?.value || "").trim().toLowerCase();
+  const allItems = receiptData?.items || [];
+  document.getElementById("receiptDate").textContent = fmtReceiptDate(receiptData?.date);
+
+  if (!allItems.length) {
+    flowEl().innerHTML = `<div class="empty-state">目前沒有待核點的訂單<br>請先完成 iGo 下單流程</div>`;
+    document.getElementById("summaryBadge").textContent = "無待核點訂單";
+    return;
+  }
+
+  const pending = allItems.filter(it => !it.done);
+  document.getElementById("summaryBadge").textContent = `待核點 ${pending.length}／${allItems.length} 項`;
+
+  const filtered = q ? allItems.filter(it => it.name.toLowerCase().includes(q)) : allItems;
+  if (!filtered.length) {
+    flowEl().innerHTML = `<div class="empty-state">找不到「${q}」</div>`;
+    spacerEl().style.height = "0px";
+    return;
+  }
+
+  let html = "";
+  if (pending.length === 0) {
+    html += `<div class="all-done-banner">✅ 所有品項已核點完畢！</div>`;
+  }
+
+  const groups = {};
+  filtered.forEach(it => {
+    const z = it.zone || "（未分區）";
+    if (!groups[z]) groups[z] = [];
+    groups[z].push(it);
+  });
+
+  const zoneOrder = sortZones(Object.keys(groups));
+  html += zoneOrder.map(zone => {
+    const rows = groups[zone].map(it => buildRow(it)).join("");
+    return `<div class="zone-section" id="zone-${zone}">
+      <div class="zone-title">${zone}</div>
+      ${rows}
+    </div>`;
+  }).join("");
+
+  flowEl().innerHTML = html;
+
+  const chipsEl = document.getElementById("zoneChips");
+  if (!q && zoneOrder.length) {
+    chipsEl.innerHTML = zoneOrder.map(z =>
+      `<button class="zone-chip" onclick="scrollToZone('${z}')">${z}</button>`
+    ).join("");
+  } else {
+    chipsEl.innerHTML = "";
+  }
+
+  /* DOM 畫完後計算捲軸空間 */
+  requestAnimationFrame(initLayout);
+}
+
+/* 區域排序：鐵架 → 鐵櫃 → 架子 → 精蟲(A-E) → 其他 */
+function sortZones(zones) {
+  function rank(z) {
+    const num = parseInt(z.match(/(\d+)/)?.[1] ?? "999");
+    const letter = z.match(/精([A-E])$/)?.[1]?.charCodeAt(0) ?? 999;
+    if (/^胚胎-鐵\d/.test(z))   return [1, num, 0];
+    if (/^胚胎-鐵櫃/.test(z))   return [2, num, 0];
+    if (/^胚胎-架/.test(z))     return [3, num, 0];
+    if (/^精蟲.*精[A-E]/.test(z)) return [4, 0, letter];
+    if (/^精蟲/.test(z))        return [5, 0, 0];
+    return [6, 0, zones.indexOf(z)]; // 其他保持原順序
+  }
+  return [...zones].sort((a, b) => {
+    const [ag, an, al] = rank(a);
+    const [bg, bn, bl] = rank(b);
+    return ag !== bg ? ag - bg : an !== bn ? an - bn : al - bl;
+  });
+}
+
+function buildRow(it) {
+  const isPartial = it.received !== null && it.received < it.ordered;
+  const partialTag = isPartial
+    ? `<div class="item-partial-tag">已到 ${it.received} / 訂 ${it.ordered}，缺 ${it.ordered - it.received} ${it.unit}</div>`
+    : "";
+  const cls = it.done ? "done" : isPartial ? "partial" : "";
+  return `
+    <div class="item-row ${cls}" id="row-${it.id}">
+      <div class="item-name-group">
+        <div class="item-name">${it.name}</div>
+        ${partialTag}
+      </div>
+      <div class="item-controls">
+        <div class="item-qty-row">
+          <span class="item-qty-num">${it.ordered}</span>
+          <span class="item-qty-unit">${it.unit}</span>
+        </div>
+        ${it.done ? `
+        <div class="item-actions">
+          <span style="font-size:20px">✅</span>
+          <button class="btn-undo" onclick="undoDone('${it.id}')">復原</button>
+        </div>` : `
+        <div class="item-actions">
+          <div class="partial-wrap">
+            <input class="partial-inp" type="number" inputmode="decimal"
+                   min="0" max="${it.ordered}" placeholder="到幾"
+                   id="pinp-${it.id}">
+            <span class="unit-hint">${it.unit}</span>
+          </div>
+          <button class="btn-partial" onclick="markPartial('${it.id}', ${it.ordered}, '${it.unit}')">部分到</button>
+          <button class="btn-all" onclick="markDone('${it.id}', ${it.ordered}, '${it.unit}')">全到 ✓</button>
+        </div>`}
+      </div>
+    </div>`;
+}
+
+async function markDone(id, ordered, unit) {
+  await postUpdate(id, ordered, true);
+  showToast(`✅ ${findItem(id)?.name || id} 全數到齊`);
+  renderAll();
+}
+
+async function undoDone(id) {
+  await postUpdate(id, null, false);
+  const it = findItem(id);
+  if (it) it.received = null;
+  showToast(`↩️ ${it?.name || id} 已復原`);
+  renderAll();
+}
+
+async function markPartial(id, ordered, unit) {
+  const inp = document.getElementById("pinp-" + id);
+  const val = parseInt(inp?.value);
+  if (isNaN(val) || val < 0) { showToast("請輸入有效數量"); return; }
+  if (val >= ordered) { await markDone(id, ordered, unit); return; }
+  await postUpdate(id, val, false);
+  const it = findItem(id);
+  if (it) it.received = val;
+  showToast(`⚠️ 已記錄 ${val} / ${ordered} ${unit}`);
+  renderAll();
+}
+
+async function postUpdate(itemId, received, done) {
+  try {
+    await fetch(GAS_URL, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: JSON.stringify({ action: "update-receipt", itemId, received, done })
+    });
+    const it = findItem(itemId);
+    if (it) { it.received = received; it.done = done; }
+  } catch(e) { showToast("更新失敗：" + e.message); }
+}
+
+function findItem(id) { return receiptData?.items?.find(it => it.id === id); }
+
+
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2500);
+}
+
+loadReceipt();
+</script>
+</body>
+</html>

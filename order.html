@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>耗材訂購清單</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f7; color: #1a1a1a; min-height: 100vh; padding-top: 50px; }
+
+/* ── Header（與 count.html 統一） ── */
+.hdr {
+  background: #222; color: #fff;
+  height: 50px; padding: 0 12px; display: flex; align-items: center; gap: 8px;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 300; border-bottom: 1px solid #444;
+}
+.hdr h1 { font-size: 15px; font-weight: 700; flex-shrink: 0; }
+.hdr .date-badge {
+  background: #333; border-radius: 7px; padding: 3px 10px;
+  font-size: 12px; color: #aaa; flex-shrink: 0;
+}
+.hdr .date-badge span { color: #fff; font-weight: 600; }
+.hdr .spacer { flex: 1; }
+.hdr .reload-btn {
+  background: #3a3a3a; border: 1px solid #555; color: #aaa; border-radius: 7px;
+  padding: 0 9px; height: 28px; font-size: 11px; cursor: pointer; flex-shrink: 0;
+}
+/* Nav tabs（整合進 header） */
+.nav-tab {
+  height: 26px; padding: 0 11px; border: none; border-radius: 6px;
+  font-size: 12px; font-weight: 600; cursor: pointer; color: #666;
+  background: transparent; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+}
+.nav-tab.active { background: #007aff; color: #fff; }
+.nav-divider { width: 1px; height: 20px; background: #444; margin: 0 4px; flex-shrink: 0; }
+
+/* ── Main ── */
+.main { max-width: 960px; margin: 0 auto; padding: 24px 24px 60px; }
+
+/* ── Section ── */
+.section { background: #fff; border-radius: 14px; margin-bottom: 20px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.sec-hdr {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 20px; border-bottom: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+.sec-icon { font-size: 18px; }
+.sec-title { font-size: 15px; font-weight: 700; }
+.sec-count { font-size: 12px; color: #888; }
+.empty-msg { padding: 28px; text-align: center; color: #bbb; font-size: 13px; }
+
+/* ── iGo Table ── */
+.igo-table { width: 100%; border-collapse: collapse; }
+.igo-table th {
+  font-size: 11px; font-weight: 600; color: #888; text-transform: uppercase;
+  letter-spacing: .5px; padding: 10px 16px; background: #f9f9f9;
+  border-bottom: 1px solid #eee; text-align: left;
+}
+.igo-table th.num { text-align: right; }
+.igo-table td { padding: 11px 16px; border-bottom: 1px solid #f5f5f5; font-size: 13px; vertical-align: middle; }
+.igo-table tr:last-child td { border-bottom: none; }
+.igo-table tr:hover td { background: #fafafa; }
+.item-name { font-weight: 600; color: #1a1a1a; }
+.item-igo  { font-size: 11px; color: #888; margin-top: 2px; }
+.warn-tag  { display: inline-block; background: #fff3cd; color: #856404; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 600; margin-left: 6px; }
+.current-cell { text-align: right; color: #555; }
+.unit-label   { font-size: 11px; color: #aaa; margin-left: 2px; }
+.qty-input {
+  width: 64px; height: 32px; border: 1.5px solid #d0d0d0; border-radius: 8px;
+  text-align: center; font-size: 15px; font-weight: 700; color: #1a1a1a;
+  background: #fff; -webkit-appearance: none;
+  float: right;
+}
+.qty-input:focus { outline: none; border-color: #007aff; }
+.qty-input.changed { border-color: #ff9500; background: #fffbf0; }
+
+/* ── iGo footer ── */
+.igo-footer {
+  padding: 14px 20px; border-top: 1px solid #f0f0f0;
+  display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+}
+.igo-footer .hint { font-size: 12px; color: #aaa; }
+.btn-send-igo {
+  background: #007aff; color: #fff; border: none; border-radius: 10px;
+  padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
+  display: flex; align-items: center; gap: 6px;
+}
+.btn-send-igo:hover { background: #0066dd; }
+.btn-send-igo:disabled { background: #aaa; cursor: default; }
+
+/* ── LINE Section ── */
+.line-list { padding: 8px 0; }
+.line-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 20px; border-bottom: 1px solid #f5f5f5;
+}
+.line-item:last-child { border-bottom: none; }
+.line-name { flex: 1; font-size: 13px; font-weight: 600; }
+.line-qty  { font-size: 13px; color: #555; min-width: 60px; text-align: right; }
+.btn-copy {
+  background: #f0f0f0; border: none; border-radius: 8px;
+  padding: 6px 14px; font-size: 12px; font-weight: 600; color: #333; cursor: pointer;
+  transition: background .15s;
+}
+.btn-copy:hover { background: #e0e0e0; }
+.btn-copy.copied { background: #34c759; color: #fff; }
+.btn-copy-all {
+  margin: 0 20px 14px; display: block;
+  background: #f0f9ff; border: 1.5px solid #007aff; color: #007aff;
+  border-radius: 9px; padding: 9px 0; font-size: 13px; font-weight: 600;
+  cursor: pointer; text-align: center; width: calc(100% - 40px);
+}
+.btn-copy-all:hover { background: #e0f0ff; }
+.btn-copy-all.copied { background: #e6fff0; border-color: #34c759; color: #34c759; }
+
+/* ── Linkin Section ── */
+.linkin-list { padding: 8px 0; }
+.linkin-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 20px; border-bottom: 1px solid #f5f5f5;
+  font-size: 13px;
+}
+.linkin-item:last-child { border-bottom: none; }
+.linkin-icon { color: #ff9500; font-size: 16px; flex-shrink: 0; }
+.linkin-name { font-weight: 600; flex: 1; }
+.linkin-qty  { color: #555; }
+.linkin-note { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+/* ── Loading / Error ── */
+.status-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,.3);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 999;
+}
+.status-box {
+  background: #fff; border-radius: 16px; padding: 32px 40px;
+  text-align: center; box-shadow: 0 8px 32px rgba(0,0,0,.15);
+  min-width: 220px;
+}
+.status-box .spinner {
+  width: 32px; height: 32px; border: 3px solid #eee;
+  border-top-color: #007aff; border-radius: 50%;
+  animation: spin .8s linear infinite; margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.status-box p { font-size: 14px; color: #555; }
+.status-box .err { color: #ff3b30; }
+.status-box .retry-btn {
+  margin-top: 14px; background: #007aff; color: #fff; border: none;
+  border-radius: 8px; padding: 8px 20px; font-size: 13px; cursor: pointer;
+}
+
+/* ── Toast ── */
+.toast {
+  position: fixed; bottom: 32px; left: 50%; transform: translateX(-50%);
+  background: #1c1c1e; color: #fff; padding: 10px 22px; border-radius: 20px;
+  font-size: 13px; font-weight: 600; opacity: 0; transition: opacity .2s;
+  pointer-events: none; z-index: 9999;
+}
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>實驗室耗材_訂貨</h1>
+  <div class="date-badge">盤點日期：<span id="countDate">—</span></div>
+  <div class="spacer"></div>
+  <button class="reload-btn" onclick="loadOrder()">重新載入</button>
+  <div class="nav-divider"></div>
+  <button class="nav-tab" onclick="location.href='count.html'">① 盤點</button>
+  <button class="nav-tab active">② 訂單</button>
+  <button class="nav-tab" onclick="location.href='receive.html'">③ 到貨</button>
+</div>
+
+<div class="main" id="mainContent" style="display:none">
+
+  <!-- iGo Section -->
+  <div class="section" id="secIgo" style="display:none">
+    <div class="sec-hdr">
+      <span class="sec-icon">🛒</span>
+      <span class="sec-title">iGo 訂購</span>
+      <span class="sec-count" id="igoCount"></span>
+    </div>
+    <table class="igo-table">
+      <thead>
+        <tr>
+          <th style="width:35%">品項</th>
+          <th style="width:30%">iGo 搜尋名稱</th>
+          <th class="num" style="width:13%">現有量</th>
+          <th class="num" style="width:12%">基準量</th>
+          <th class="num" style="width:10%">訂購量</th>
+        </tr>
+      </thead>
+      <tbody id="igoBody"></tbody>
+    </table>
+    <div class="igo-footer">
+      <span class="hint">可手動調整訂購量後再送出</span>
+      <button class="btn-send-igo" id="btnSendIgo" onclick="sendToIgo()">送出 iGo 訂單</button>
+    </div>
+  </div>
+
+  <!-- LINE 分生室 -->
+  <div class="section" id="secLine1" style="display:none">
+    <div class="sec-hdr">
+      <span class="sec-icon">💬</span>
+      <span class="sec-title">LINE — 分生室</span>
+      <span class="sec-count" id="line1Count"></span>
+    </div>
+    <div class="line-list" id="line1Body"></div>
+    <button class="btn-copy-all" id="btnCopyLine1" onclick="copyLineAll('line1')">複製全部訊息</button>
+  </div>
+
+  <!-- LINE 艾捷隆 -->
+  <div class="section" id="secLine2" style="display:none">
+    <div class="sec-hdr">
+      <span class="sec-icon">💬</span>
+      <span class="sec-title">LINE — 艾捷隆</span>
+      <span class="sec-count" id="line2Count"></span>
+    </div>
+    <div class="line-list" id="line2Body"></div>
+    <button class="btn-copy-all" id="btnCopyLine2" onclick="copyLineAll('line2')">複製全部訊息</button>
+  </div>
+
+  <!-- Linkin -->
+  <div class="section" id="secLinkin" style="display:none">
+    <div class="sec-hdr">
+      <span class="sec-icon">⚠️</span>
+      <span class="sec-title">Linkin — 人工聯絡</span>
+      <span class="sec-count" id="linkinCount"></span>
+    </div>
+    <div class="linkin-list" id="linkinBody"></div>
+  </div>
+
+</div>
+
+<!-- Loading Overlay -->
+<div class="status-overlay" id="overlay">
+  <div class="status-box" id="statusBox">
+    <div class="spinner"></div>
+    <p>載入訂購清單中…</p>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwdoAng6aOcufhV9E_OmrBTDbOV28R_1HMsIg3WKyocHWew0o5LYCX6fQdaJs5kDGXj/exec";
+
+function fmtCountDate(raw, countBy) {
+  const WD = ["日","一","二","三","四","五","六"];
+  const d = new Date(raw);
+  let str = isNaN(d) ? (raw || "（無資料）")
+    : `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日 星期${WD[d.getDay()]} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+  if (countBy) str += ` · ${countBy}`;
+  return str;
+}
+
+let orderData = null;      // 完整 API 回傳
+let igoItems  = [];
+let line1Items = [];
+let line2Items = [];
+let linkinItems = [];
+
+// ── 載入訂購清單 ──────────────────────────────────────────────
+async function loadOrder() {
+  if (new URLSearchParams(location.search).get('src') === '2w') { await load2wOrder(); return; }
+  showLoading("載入訂購清單中…");
+  try {
+    const res  = await fetch(`${GAS_URL}?action=order&_t=${Date.now()}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "API 回傳錯誤");
+    orderData = data;
+    if (data.submittedAt) data.date = data.submittedAt;
+    renderAll(data);
+    hideOverlay();
+  } catch (e) {
+    showError("載入失敗：" + e.message);
+  }
+}
+async function load2wOrder() {
+  showLoading("載入兩週盤點訂單…");
+  try {
+    const res  = await fetch(`${GAS_URL}?action=pending-order&_t=${Date.now()}`);
+    const data = await res.json();
+    if (!data.items?.length) { showError("找不到兩週盤點訂單，請重新從 count.html 提交"); return; }
+    const items = data.items.map(it => ({
+      ...it, suggested: it.suggested ?? it.qty ?? 0, current: null, warning: false
+    }));
+    orderData = { ok: true, date: data.date || "", countBy: "兩週盤點", items };
+    renderAll(orderData);
+    hideOverlay();
+  } catch (e) {
+    showError("載入失敗：" + e.message);
+  }
+}
+
+// ── 分類 & 渲染 ───────────────────────────────────────────────
+function renderAll(data) {
+  document.getElementById("countDate").textContent = fmtCountDate(data.date, data.countBy);
+
+  const items = data.items || [];
+  igoItems    = items.filter(it => it.channel === "iGo");
+  line1Items  = items.filter(it => it.channel === "LINE分生室");
+  line2Items  = items.filter(it => it.channel === "LINE艾捷隆");
+  linkinItems = items.filter(it => it.channel === "linkin");
+
+  renderIgo();
+  renderLine("line1", line1Items, "LINE分生室");
+  renderLine("line2", line2Items, "LINE艾捷隆");
+  renderLinkin();
+
+  document.getElementById("mainContent").style.display = "";
+}
+
+// ── iGo ──────────────────────────────────────────────────────
+function renderIgo() {
+  const sec = document.getElementById("secIgo");
+  if (!igoItems.length) { sec.style.display = "none"; return; }
+  sec.style.display = "";
+  document.getElementById("igoCount").textContent = `共 ${igoItems.length} 項`;
+
+  const tbody = document.getElementById("igoBody");
+  tbody.innerHTML = igoItems.map(it => {
+    const warnTag = it.warning ? `<span class="warn-tag">⚠️ 低庫存</span>` : "";
+    const currentStr = it.rawCurrent !== null && it.rawCurrent !== undefined
+      ? `${it.rawCurrent}<span class="unit-label">${it.bulkUnit}</span>`
+      : it.current !== null ? `${it.current}<span class="unit-label">${it.unit}</span>` : "—";
+    return `<tr>
+      <td>
+        <div class="item-name">${it.name}${warnTag}</div>
+        ${it.note ? `<div class="item-igo" style="color:#f80">${it.note}</div>` : ""}
+      </td>
+      <td><div class="item-igo" style="font-size:12px;color:#555">${it.igoName || it.name}</div></td>
+      <td class="current-cell">${currentStr}</td>
+      <td class="current-cell" style="color:#aaa">${it.suggested > 0 ? it.suggested + `<span class="unit-label">${it.unit}</span>` : "—"}</td>
+      <td>
+        <input class="qty-input" type="number" min="0" id="qty-${it.id}"
+          value="${it.suggested}" oninput="onQtyChange('${it.id}', ${it.suggested}, this)">
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+function onQtyChange(id, original, el) {
+  el.classList.toggle("changed", Number(el.value) !== original);
+}
+
+// ── LINE ──────────────────────────────────────────────────────
+function renderLine(key, items, target) {
+  const sec   = document.getElementById("sec" + key.charAt(0).toUpperCase() + key.slice(1));
+  const body  = document.getElementById(key + "Body");
+  const count = document.getElementById(key + "Count");
+  if (!items.length) { sec.style.display = "none"; return; }
+  sec.style.display = "";
+  count.textContent = `共 ${items.length} 項`;
+
+  body.innerHTML = items.map(it => `
+    <div class="line-item">
+      <span class="line-name">${it.name}${it.warning ? ' <span class="warn-tag">⚠️</span>' : ""}</span>
+      <span class="line-qty">${it.suggested} ${it.unit}</span>
+      <button class="btn-copy" onclick="copyOne(this, '${escHtml(it.name)}', ${it.suggested}, '${escHtml(it.unit)}')">複製</button>
+    </div>
+  `).join("");
+}
+
+// ── Linkin ────────────────────────────────────────────────────
+function renderLinkin() {
+  const sec = document.getElementById("secLinkin");
+  if (!linkinItems.length) { sec.style.display = "none"; return; }
+  sec.style.display = "";
+  document.getElementById("linkinCount").textContent = `共 ${linkinItems.length} 項`;
+
+  document.getElementById("linkinBody").innerHTML = linkinItems.map(it => `
+    <div class="linkin-item">
+      <span class="linkin-icon">⚠️</span>
+      <div style="flex:1">
+        <div class="linkin-name">${it.name}${it.warning ? ' <span class="warn-tag">低庫存</span>' : ""}</div>
+        ${it.note ? `<div class="linkin-note">${it.note}</div>` : ""}
+      </div>
+      <span class="linkin-qty">${it.suggested} ${it.unit}</span>
+    </div>
+  `).join("");
+}
+
+// ── 送出 iGo ─────────────────────────────────────────────────
+async function sendToIgo() {
+  const btn = document.getElementById("btnSendIgo");
+  const payload = igoItems.map(it => {
+    const el = document.getElementById("qty-" + it.id);
+    const qty = el ? Number(el.value) : it.suggested;
+    return { id: it.id, name: it.name, igoName: it.igoName || it.name, igoSubName: it.igoSubName || "", qty, unit: it.unit };
+  }).filter(it => it.qty > 0);
+
+  if (!payload.length) { toast("沒有需要送出的品項"); return; }
+
+  // session_id 用時間戳記，避免多人同時操作時抓錯訂單
+  const sessionId = "igo_" + Date.now();
+
+  btn.disabled = true;
+  btn.textContent = "存入中…";
+  try {
+    const res  = await fetch(GAS_URL, {
+      method: "POST",
+      body:   JSON.stringify({
+        action: "pending-order",
+        sessionId,
+        items: payload,
+        date: orderData?.date || ""
+      })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error);
+    // 把 sessionId 存到 localStorage，Tampermonkey 開啟 iGo 後用同一個 sessionId 來取單
+    localStorage.setItem("igo_session_id", sessionId);
+    btn.textContent = "✅ 已存入，正在開啟 iGo…";
+    toast(`已存入 ${payload.length} 項，即將開啟 iGo`);
+    setTimeout(() => {
+      window.open("https://tp-igo.e-stork.com.tw/login", "_blank");
+      btn.disabled = false;
+      btn.textContent = "送出 iGo 訂單";
+    }, 1200);
+  } catch (e) {
+    toast("送出失敗：" + e.message);
+    btn.disabled = false;
+    btn.textContent = "送出 iGo 訂單";
+  }
+}
+
+// ── 複製 LINE 訊息 ─────────────────────────────────────────────
+function copyOne(btnEl, name, qty, unit) {
+  const text = `${name} x${qty}${unit}`;
+  navigator.clipboard.writeText(text).then(() => {
+    btnEl.textContent = "✅";
+    btnEl.classList.add("copied");
+    setTimeout(() => { btnEl.textContent = "複製"; btnEl.classList.remove("copied"); }, 1800);
+  });
+}
+
+function copyLineAll(key) {
+  const items = key === "line1" ? line1Items : line2Items;
+  const text = items.map(it => {
+    const el = document.getElementById("qty-" + it.id);
+    const qty = el ? Number(el.value) : it.suggested;
+    return `${it.name} x${qty}${it.unit}`;
+  }).join("\n");
+  const btn = document.getElementById("btnCopy" + key.charAt(0).toUpperCase() + key.slice(1));
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = "✅ 已複製";
+    btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "複製全部訊息"; btn.classList.remove("copied"); }, 2000);
+  });
+  toast("已複製 " + items.length + " 項訊息");
+}
+
+// ── 工具 ─────────────────────────────────────────────────────
+function escHtml(s) { return String(s).replace(/'/g, "\\'"); }
+
+function showLoading(msg) {
+  document.getElementById("statusBox").innerHTML = `<div class="spinner"></div><p>${msg}</p>`;
+  document.getElementById("overlay").style.display = "";
+}
+function showError(msg) {
+  document.getElementById("statusBox").innerHTML =
+    `<p class="err">${msg}</p><button class="retry-btn" onclick="loadOrder()">重試</button>`;
+}
+function hideOverlay() {
+  document.getElementById("overlay").style.display = "none";
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 2200);
+}
+
+// ── 啟動 ─────────────────────────────────────────────────────
+loadOrder();
+</script>
+</body>
+</html>
