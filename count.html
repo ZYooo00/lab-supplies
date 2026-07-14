@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>耗材盤點</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="耗材管理">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, "PingFang TC", sans-serif;
+  background: #1a1a1a; color: #1a1a1a;
+  height: 100dvh; overflow: hidden;
+  user-select: none; -webkit-user-select: none;
+}
+.hdr {
+  height: 50px; background: #222; border-bottom: 1px solid #444;
+  display: flex; align-items: center; gap: 7px; padding: 0 12px;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 300;
+}
+.hdr h1 { font-size: 15px; font-weight: 700; flex-shrink: 0; color: #fff; }
+.hdr label { font-size: 11px; color: #888; flex-shrink: 0; }
+.hdr input[type="date"], .hdr select {
+  height: 30px; border: 1px solid #444; border-radius: 7px;
+  padding: 0 6px; font-size: 13px; background: #333; color: #fff;
+  -webkit-appearance: none;
+}
+.hdr input[type="date"] { width: 126px; }
+.hdr select { width: 70px; }
+.hdr .sp { flex: 1; }
+.hdr .badge { font-size: 12px; color: #aaa; flex-shrink: 0; }
+/* Nav tabs（整合進 header） */
+.nav-tab {
+  height: 26px; padding: 0 11px; border: none; border-radius: 6px;
+  font-size: 12px; font-weight: 600; cursor: pointer; color: #666;
+  background: transparent; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+}
+.nav-tab.active { background: #007aff; color: #fff; }
+/* 送出狀態 */
+.submit-status { font-size: 11px; color: #34c759; flex-shrink: 0; white-space: nowrap; }
+.layout {
+  position: fixed; top: 50px; bottom: 50px; left: 0; right: 0;
+  display: flex; flex-direction: row; overflow: hidden;
+}
+.map-area {
+  flex: 1; min-width: 0; min-height: 0;
+  overflow: hidden; background: #1a1a1a;
+  display: flex; align-items: center; justify-content: center;
+}
+.drawer {
+  width: 0; flex-shrink: 0; overflow: hidden; background: #fff;
+  display: flex; flex-direction: column;
+  transition: width 0.28s cubic-bezier(0.4,0,0.2,1);
+}
+.drawer.open { width: min(370px, 43vw); border-left: 1px solid #e0e0e0; }
+.drw-hdr {
+  height: 48px; flex-shrink: 0; display: flex; align-items: center;
+  padding: 0 12px; border-bottom: 1px solid #f0f0f0; gap: 8px;
+}
+.drw-title { font-size: 15px; font-weight: 700; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1a1a1a; }
+.drw-prog { font-size: 12px; color: #888; flex-shrink: 0; }
+.btn-close {
+  width: 28px; height: 28px; border: none; background: #f0f0f0;
+  border-radius: 50%; font-size: 17px; color: #555; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.drw-scroll { flex: 1; overflow-y: auto; padding: 10px; }
+.cards-grid { display: flex; flex-direction: column; gap: 6px; }
+.card {
+  background: #f5f5f7; border-radius: 11px;
+  border: 2px solid transparent; padding: 10px 12px;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+}
+.card.warn { border-color: #ff9500; background: #fff8f0; }
+.card.done { border-color: #34c759; background: #f0fff5; }
+.c-info { flex: 1; min-width: 0; }
+.c-name { font-size: 13px; font-weight: 600; line-height: 1.35; color: #1a1a1a; }
+.c-meta { font-size: 10px; color: #888; margin-top: 1px; display: flex; align-items: center; gap: 4px; }
+.c-safe { color: #bbb; }
+.c-safe.hi { color: #ff9500; font-weight: 600; }
+.btn-stock { height: 32px; padding: 0 10px; border-radius: 8px; border: 1.5px solid #d0d0d0; background: #fff; font-size: 12px; font-weight: 600; color: #555; cursor: pointer; -webkit-tap-highlight-color: transparent; white-space: nowrap; }
+.btn-stock.yes { background: #34c759; border-color: #34c759; color: #fff; }
+.btn-stock.no  { background: #ff9500; border-color: #ff9500; color: #fff; }
+.inp-row { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.btn-pm {
+  width: 32px; height: 32px; flex-shrink: 0;
+  border: 1px solid #d0d0d0; border-radius: 8px;
+  background: #fff; font-size: 20px; line-height: 1; color: #333;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.c-inp {
+  width: 56px; height: 32px; border: 1.5px solid #d0d0d0; border-radius: 8px;
+  text-align: center; font-size: 15px; font-weight: 600;
+  background: #fff; -webkit-appearance: none; color: #1a1a1a;
+}
+.c-inp:focus { outline: none; border-color: #007aff; }
+.ftr {
+  position: fixed; bottom: 0; left: 0; right: 0; height: 50px;
+  background: #222; border-top: 1px solid #444;
+  display: flex; align-items: center; padding: 0 14px; z-index: 300;
+}
+.btn-submit {
+  flex: 1; height: 38px; background: #007aff; color: #fff;
+  border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.btn-submit:disabled { background: #3a5a8a; color: #aaa; }
+.success {
+  position: fixed; inset: 0; z-index: 999; background: #34c759;
+  flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; display: none;
+}
+.success.show { display: flex; }
+.success .ico { font-size: 64px; }
+.success .msg { font-size: 22px; font-weight: 700; color: #fff; }
+.success .sub { font-size: 13px; color: rgba(255,255,255,0.85); text-align: center; padding: 0 28px; }
+.btn-done {
+  margin-top: 18px; padding: 11px 32px; background: #fff; color: #34c759;
+  border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer;
+}
+.zone-done .zbg { fill: rgba(52,199,89,0.7); stroke: #2ea84e; }
+.zone-done .zlabel { fill: #1a4a20 !important; }
+/* 新盤點按鈕 */
+.btn-new-count { padding: 0 9px; height: 28px; background: #3a3a3a; border: 1px solid #555; border-radius: 7px; color: #aaa; font-size: 11px; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
+.btn-new-count:active { background: #555; }
+/* 兩週/四週 模式 */
+.mode-sw { display:flex; gap:0; background:#3a3a3a; border-radius:8px; padding:2px; flex-shrink:0; }
+.mode-btn { height:26px; padding:0 11px; border:none; border-radius:6px; font-size:12px; font-weight:600; color:#888; background:transparent; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+.mode-btn.active { background:#007aff; color:#fff; }
+/* order 跳轉按鈕 */
+.btn-order { margin-top:10px; padding: 11px 28px; background: #007aff; color: #fff; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; }
+/* 數字鍵盤（嵌在抽屜底部） */
+.drw-numpad {
+  flex-shrink: 0; border-top: 1px solid #e8e8e8;
+  background: #f0f0f5; padding: 8px 10px 10px; display: none;
+}
+.drw-numpad.show { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.np-btn {
+  height: 38px; border: none; border-radius: 9px;
+  font-size: 18px; font-weight: 600; color: #1a1a1a; cursor: pointer;
+  background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.12);
+  -webkit-tap-highlight-color: transparent;
+  display: flex; align-items: center; justify-content: center;
+}
+.np-btn:active { background: #d8d8dc; }
+.np-btn.np-bsp { background: #ffe0e0; color: #c0392b; font-size: 16px; }
+.np-btn.np-ok  { background: #007aff; color: #fff; font-size: 14px; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <h1>實驗室耗材_盤點</h1>
+  <label>日期</label>
+  <input type="date" id="datePicker">
+  <label>盤點人</label>
+  <select id="personPicker">
+    <option>Yvette</option><option>Xuan</option><option>Corrine</option>
+    <option>Wilson</option><option>Gordon</option><option>Tini</option>
+    <option>Irene</option><option>Windy</option><option>Linda</option>
+    <option>Harvey</option><option>Lauren</option><option>Tiffany</option>
+    <option>Cara</option><option>Rina</option><option>Alvin</option>
+    <option>Linkin</option><option>Sunny</option><option>Ally</option>
+  </select>
+  <div class="mode-sw">
+    <button id="btn4w" class="mode-btn active" onclick="setMode('4w')">四週</button>
+    <button id="btn2w" class="mode-btn" onclick="setMode('2w')">兩週</button>
+  </div>
+  <span id="submitStatus" class="submit-status"></span>
+  <span class="sp"></span>
+  <span class="badge" id="totalBadge">—</span>
+  <button class="btn-new-count" onclick="startNew()">＋新盤點</button>
+  <div style="width:1px;height:20px;background:#444;margin:0 4px;flex-shrink:0"></div>
+  <button class="nav-tab active">① 盤點</button>
+  <button class="nav-tab" onclick="location.href='order.html'">② 訂單</button>
+  <button class="nav-tab" onclick="location.href='receive.html'">③ 到貨</button>
+</div>
+
+<div class="layout">
+  <div class="map-area">
+    <svg width="100%" height="100%" viewBox="0 15 1280 690"
+         preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+
+      <!-- Background -->
+      <rect x="0" y="0" width="1280" height="720" fill="#1a1a1a"/>
+
+      <!-- Corridors -->
+      <rect x="75" y="91" width="735" height="32" fill="#E0ECFA" fill-opacity="0.55"/>
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="18" fill="#fff" text-anchor="middle" dominant-baseline="central" x="442" y="107">走道 1</text>
+      <rect x="75" y="276" width="735" height="32" fill="#E0ECFA" fill-opacity="0.55"/>
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="18" fill="#fff" text-anchor="middle" dominant-baseline="central" x="442" y="292">走道 2</text>
+      <rect x="75" y="473" width="735" height="32" fill="#E0ECFA" fill-opacity="0.55"/>
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="18" fill="#fff" text-anchor="middle" dominant-baseline="central" x="442" y="489">走道 3</text>
+      <rect x="75" y="91" width="32" height="414" fill="#E0ECFA" fill-opacity="0.55"/>
+      <rect x="777" y="91" width="32" height="414" fill="#E0ECFA" fill-opacity="0.55"/>
+      <rect x="75" y="523" width="735" height="32" fill="#E0ECFA" fill-opacity="0.35"/>
+
+      <!-- Dashed work areas -->
+      <path d="M194.5 226.334C194.5 220.903 198.903 216.5 204.334 216.5L708.666 216.5C714.097 216.5 718.5 220.903 718.5 226.334L718.5 265.666C718.5 271.097 714.097 275.5 708.666 275.5L204.334 275.5C198.903 275.5 194.5 271.097 194.5 265.666Z"
+            stroke="#666" stroke-width="2" stroke-dasharray="12 9" fill="#2a2a2a"/>
+      <path d="M194.5 337.167C194.5 322.439 206.439 310.5 221.167 310.5L748.833 310.5C763.561 310.5 775.5 322.439 775.5 337.167L775.5 443.833C775.5 458.561 763.561 470.5 748.833 470.5L221.167 470.5C206.439 470.5 194.5 458.561 194.5 443.833Z"
+            stroke="#666" stroke-width="2" stroke-dasharray="12 9" fill="#2a2a2a"/>
+
+      <!-- Orange 抽拉 boxes (non-clickable) -->
+      <path d="M370.5 319.334C370.5 313.903 374.903 309.5 380.334 309.5L421.667 309.5C427.097 309.5 431.5 313.903 431.5 319.334L431.5 358.667C431.5 364.097 427.097 368.5 421.667 368.5L380.334 368.5C374.903 368.5 370.5 364.097 370.5 358.667Z" stroke="#F5CD7C" stroke-width="2" fill="#3a2e10"/>
+      <text font-family="-apple-system,sans-serif" font-size="12" fill="#F5CD7C" text-anchor="middle" dominant-baseline="central" x="401" y="340">抽拉</text>
+      <path d="M370.5 421.334C370.5 415.903 374.903 411.5 380.334 411.5L421.667 411.5C427.097 411.5 431.5 415.903 431.5 421.334L431.5 460.667C431.5 466.097 427.097 470.5 421.667 470.5L380.334 470.5C374.903 470.5 370.5 466.097 370.5 460.667Z" stroke="#F5CD7C" stroke-width="2" fill="#3a2e10"/>
+      <text font-family="-apple-system,sans-serif" font-size="12" fill="#F5CD7C" text-anchor="middle" dominant-baseline="central" x="401" y="441">抽拉</text>
+      <path d="M810.5 132.334C810.5 126.903 814.903 122.5 820.334 122.5L861.667 122.5C867.097 122.5 871.5 126.903 871.5 132.334L871.5 171.667C871.5 177.097 867.097 181.5 861.667 181.5L820.334 181.5C814.903 181.5 810.5 177.097 810.5 171.667Z" stroke="#F5CD7C" stroke-width="2" fill="#3a2e10"/>
+      <text font-family="-apple-system,sans-serif" font-size="12" fill="#F5CD7C" text-anchor="middle" dominant-baseline="central" x="841" y="152">抽拉</text>
+      <path d="M810.5 191.167C810.5 185.828 814.828 181.5 820.167 181.5L861.833 181.5C867.172 181.5 871.5 185.828 871.5 191.167L871.5 229.833C871.5 235.172 867.172 239.5 861.833 239.5L820.167 239.5C814.828 239.5 810.5 235.172 810.5 229.833Z" stroke="#F5CD7C" stroke-width="2" fill="#3a2e10"/>
+      <text font-family="-apple-system,sans-serif" font-size="12" fill="#F5CD7C" text-anchor="middle" dominant-baseline="central" x="841" y="210">抽拉</text>
+      <path d="M12.5001 180.334C12.5001 174.903 16.9027 170.5 22.3336 170.5L63.6665 170.5C69.0974 170.5 73.5001 174.903 73.5001 180.334L73.5001 219.667C73.5001 225.097 69.0974 229.5 63.6665 229.5L22.3336 229.5C16.9027 229.5 12.5001 225.097 12.5001 219.667Z" stroke="#F5CD7C" stroke-width="2" fill="#3a2e10"/>
+      <text font-family="-apple-system,sans-serif" font-size="12" fill="#F5CD7C" text-anchor="middle" dominant-baseline="central" x="43" y="200">抽拉</text>
+      <path d="M1044.5 243.167C1044.5 237.828 1048.83 233.5 1054.17 233.5L1094.83 233.5C1100.17 233.5 1104.5 237.828 1104.5 243.167L1104.5 281.833C1104.5 287.172 1100.17 291.5 1094.83 291.5L1054.17 291.5C1048.83 291.5 1044.5 287.172 1044.5 281.833Z" stroke="#F5CD7C" stroke-width="2" fill="#3a2e10"/>
+      <text font-family="-apple-system,sans-serif" font-size="12" fill="#F5CD7C" text-anchor="middle" dominant-baseline="central" x="1074.5" y="262">抽拉</text>
+
+      <!-- ══════════════════════════════
+           CLICKABLE ZONES
+           ══════════════════════════════ -->
+
+      <!-- ── PGS 專區 (咖啡色) ── -->
+      <g class="zone-tap" data-zone="PGS-冰箱" onclick="openZone('PGS-冰箱')" style="cursor:pointer">
+        <path class="zbg" d="M12.5001 318.667C12.5001 313.052 17.0519 308.5 22.6669 308.5L63.3332 308.5C68.9482 308.5 73.5001 313.052 73.5001 318.667L73.5001 401.333C73.5001 406.948 68.9482 411.5 63.3332 411.5L22.6669 411.5C17.0519 411.5 12.5001 406.948 12.5001 401.333Z" fill="#D3B9A7" stroke="#843C0C" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="11" fill="#4a1a00" text-anchor="middle" dominant-baseline="central" x="43" y="348">PGS</text>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="11" fill="#4a1a00" text-anchor="middle" dominant-baseline="central" x="43" y="362">冰箱</text>
+        <text class="zprog" data-prog="PGS-冰箱" font-family="-apple-system,sans-serif" font-size="11" fill="#555" text-anchor="middle" dominant-baseline="central" x="43" y="378">—</text>
+      </g>
+      <g class="zone-tap" data-zone="PGS-2" onclick="openZone('PGS-2')" style="cursor:pointer">
+        <path class="zbg" d="M810.5 335.167C810.5 329.828 814.828 325.5 820.167 325.5L861.833 325.5C867.172 325.5 871.5 329.828 871.5 335.167L871.5 373.833C871.5 379.172 867.172 383.5 861.833 383.5L820.167 383.5C814.828 383.5 810.5 379.172 810.5 373.833Z" fill="#D3B9A7" stroke="#843C0C" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="13" fill="#4a1a00" text-anchor="middle" dominant-baseline="central" x="841" y="347">PGS-2</text>
+        <text class="zprog" data-prog="PGS-2" font-family="-apple-system,sans-serif" font-size="11" fill="#555" text-anchor="middle" dominant-baseline="central" x="841" y="364">—</text>
+      </g>
+      <g class="zone-tap" data-zone="PGS-3" onclick="openZone('PGS-3')" style="cursor:pointer">
+        <path class="zbg" d="M556.5 564.667C556.5 561.261 559.261 558.5 562.667 558.5L651.333 558.5C654.739 558.5 657.5 561.261 657.5 564.667L657.5 589.333C657.5 592.739 654.739 595.5 651.333 595.5L562.667 595.5C559.261 595.5 556.5 592.739 556.5 589.333Z" fill="#D3B9A7" stroke="#843C0C" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="12" fill="#4a1a00" text-anchor="middle" dominant-baseline="central" x="607" y="576">PGS-3</text>
+        <text class="zprog" data-prog="PGS-3" font-family="-apple-system,sans-serif" font-size="10" fill="#555" text-anchor="middle" dominant-baseline="central" x="607" y="590">—</text>
+      </g>
+
+      <!-- ── 胚胎-回收區 (粉紅，左上) ── -->
+      <g class="zone-tap" data-zone="胚胎-回收區" onclick="openZone('胚胎-回收區')" style="cursor:pointer">
+        <path class="zbg" d="M8.50005 38.3335C8.50005 32.9027 12.9026 28.5001 18.3335 28.5001L161.667 28.5001C167.097 28.5001 171.5 32.9027 171.5 38.3335L171.5 77.6666C171.5 83.0975 167.097 87.5 161.667 87.5L18.3335 87.5C12.9026 87.5 8.50005 83.0975 8.50005 77.6666Z" fill="#FEF0FC" stroke="#FA1CAB" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="12" fill="#8a0050" text-anchor="middle" dominant-baseline="central" x="90" y="50">回收區</text>
+        <text class="zprog" data-prog="胚胎-回收區" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="90" y="68">—</text>
+      </g>
+
+      <!-- ── 文書桌 (深藍灰) ── -->
+      <g class="zone-tap" data-zone="文書桌" onclick="openZone('文書桌')" style="cursor:pointer">
+        <path class="zbg" d="M108.5 139.167C108.5 131.619 114.619 125.5 122.167 125.5L176.833 125.5C184.381 125.5 190.5 131.619 190.5 139.167L190.5 218.833C190.5 226.381 184.381 232.5 176.833 232.5L122.167 232.5C114.619 232.5 108.5 226.381 108.5 218.833Z" fill="#ADB9CA" stroke="#2F5597" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="13" fill="#1a2a50" text-anchor="middle" dominant-baseline="central" x="149.5" y="174">文書桌</text>
+        <text class="zprog" data-prog="文書桌" font-family="-apple-system,sans-serif" font-size="11" fill="#333" text-anchor="middle" dominant-baseline="central" x="149.5" y="193">—</text>
+      </g>
+
+      <!-- ── 鐵 zones (綠色，已右移，右=鐵1，左=鐵5) ── -->
+      <g class="zone-tap" data-zone="胚胎-鐵1" onclick="openZone('胚胎-鐵1')" style="cursor:pointer">
+        <path class="zbg" d="M638.5 38.3336C638.5 32.9027 642.903 28.5001 648.334 28.5001L744.667 28.5001C750.097 28.5001 754.5 32.9027 754.5 38.3336L754.5 77.6665C754.5 83.0974 750.097 87.5001 744.667 87.5001L648.334 87.5001C642.903 87.5001 638.5 83.0974 638.5 77.6665Z" fill="#DDE7CA" stroke="#6E9261" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="696.5" y="51">鐵1</text>
+        <text class="zprog" data-prog="胚胎-鐵1" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="696.5" y="70">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-鐵2" onclick="openZone('胚胎-鐵2')" style="cursor:pointer">
+        <path class="zbg" d="M521.5 38.3336C521.5 32.9027 525.903 28.5001 531.334 28.5001L628.667 28.5001C634.097 28.5001 638.5 32.9027 638.5 38.3336L638.5 77.6665C638.5 83.0974 634.097 87.5 628.667 87.5L531.334 87.5C525.903 87.5 521.5 83.0974 521.5 77.6665Z" fill="#DDE7CA" stroke="#6E9261" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="580" y="51">鐵2</text>
+        <text class="zprog" data-prog="胚胎-鐵2" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="580" y="70">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-鐵3" onclick="openZone('胚胎-鐵3')" style="cursor:pointer">
+        <path class="zbg" d="M404.5 38.3336C404.5 32.9027 408.903 28.5001 414.334 28.5001L511.667 28.5001C517.097 28.5001 521.5 32.9027 521.5 38.3336L521.5 77.6665C521.5 83.0974 517.097 87.5 511.667 87.5L414.334 87.5C408.903 87.5 404.5 83.0974 404.5 77.6665Z" fill="#DDE7CA" stroke="#6E9261" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="463" y="51">鐵3</text>
+        <text class="zprog" data-prog="胚胎-鐵3" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="463" y="70">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-鐵4" onclick="openZone('胚胎-鐵4')" style="cursor:pointer">
+        <path class="zbg" d="M287.5 38.3336C287.5 32.9027 291.903 28.5001 297.334 28.5001L394.667 28.5001C400.097 28.5001 404.5 32.9027 404.5 38.3336L404.5 77.6665C404.5 83.0974 400.097 87.5 394.667 87.5L297.334 87.5C291.903 87.5 287.5 83.0974 287.5 77.6665Z" fill="#DDE7CA" stroke="#6E9261" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="346" y="51">鐵4</text>
+        <text class="zprog" data-prog="胚胎-鐵4" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="346" y="70">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-鐵5" onclick="openZone('胚胎-鐵5')" style="cursor:pointer">
+        <path class="zbg" d="M171.5 38.3336C171.5 32.9027 175.903 28.5001 181.334 28.5001L277.667 28.5001C283.097 28.5001 287.5 32.9027 287.5 38.3336L287.5 77.6665C287.5 83.0974 283.097 87.5001 277.667 87.5001L181.334 87.5001C175.903 87.5001 171.5 83.0974 171.5 77.6665Z" fill="#DDE7CA" stroke="#6E9261" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="229.5" y="51">鐵5</text>
+        <text class="zprog" data-prog="胚胎-鐵5" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="229.5" y="70">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-鐵6" onclick="openZone('胚胎-鐵6')" style="cursor:pointer">
+        <path class="zbg" d="M108.5 240.5C108.5 236.634 111.634 233.5 115.5 233.5L183.5 233.5C187.366 233.5 190.5 236.634 190.5 240.5L190.5 268.5C190.5 272.366 187.366 275.5 183.5 275.5L115.5 275.5C111.634 275.5 108.5 272.366 108.5 268.5Z" fill="#DDE7CA" stroke="#6E9261" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="15" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="149.5" y="254.5">鐵6</text>
+      </g>
+
+      <!-- ── 架 zones (藍色，已右移，右=架1，左=架4) ── -->
+      <g class="zone-tap" data-zone="胚胎-架1" onclick="openZone('胚胎-架1')" style="cursor:pointer">
+        <path class="zbg" d="M623.5 135.167C623.5 129.828 627.828 125.5 633.167 125.5L730.833 125.5C736.172 125.5 740.5 129.828 740.5 135.167L740.5 173.833C740.5 179.172 736.172 183.5 730.833 183.5L633.167 183.5C627.828 183.5 623.5 179.172 623.5 173.833Z" fill="#F1F7FD" stroke="#3A81DC" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#1a4e8a" text-anchor="middle" dominant-baseline="central" x="682" y="151">架1</text>
+        <text class="zprog" data-prog="胚胎-架1" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="682" y="169">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-架2" onclick="openZone('胚胎-架2')" style="cursor:pointer">
+        <path class="zbg" d="M507.5 135.167C507.5 129.828 511.828 125.5 517.167 125.5L613.833 125.5C619.172 125.5 623.5 129.828 623.5 135.167L623.5 173.833C623.5 179.172 619.172 183.5 613.833 183.5L517.167 183.5C511.828 183.5 507.5 179.172 507.5 173.833Z" fill="#F1F7FD" stroke="#3A81DC" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#1a4e8a" text-anchor="middle" dominant-baseline="central" x="565.5" y="151">架2</text>
+        <text class="zprog" data-prog="胚胎-架2" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="565.5" y="169">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-架3" onclick="openZone('胚胎-架3')" style="cursor:pointer">
+        <path class="zbg" d="M351.5 135.167C351.5 129.828 355.828 125.5 361.167 125.5L497.833 125.5C503.172 125.5 507.5 129.828 507.5 135.167L507.5 173.833C507.5 179.172 503.172 183.5 497.833 183.5L361.167 183.5C355.828 183.5 351.5 179.172 351.5 173.833Z" fill="#F1F7FD" stroke="#3A81DC" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#1a4e8a" text-anchor="middle" dominant-baseline="central" x="429.5" y="151">架3</text>
+        <text class="zprog" data-prog="胚胎-架3" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="429.5" y="169">—</text>
+      </g>
+      <g class="zone-tap" data-zone="胚胎-架4" onclick="openZone('胚胎-架4')" style="cursor:pointer">
+        <path class="zbg" d="M194.5 135.167C194.5 129.828 198.828 125.5 204.167 125.5L340.833 125.5C346.172 125.5 350.5 129.828 350.5 135.167L350.5 173.833C350.5 179.172 346.172 183.5 340.833 183.5L204.167 183.5C198.828 183.5 194.5 179.172 194.5 173.833Z" fill="#F1F7FD" stroke="#3A81DC" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#1a4e8a" text-anchor="middle" dominant-baseline="central" x="272.5" y="151">架4</text>
+        <text class="zprog" data-prog="胚胎-架4" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="272.5" y="169">—</text>
+      </g>
+
+      <!-- ── 精蟲室 zones ── -->
+      <g class="zone-tap" data-zone="精蟲-精A" onclick="openZone('精蟲-精A')" style="cursor:pointer">
+        <path class="zbg" d="M968.5 37.8337C968.5 31.5743 973.574 26.5001 979.834 26.5001L1093.17 26.5001C1099.43 26.5001 1104.5 31.5743 1104.5 37.8337L1104.5 83.1664C1104.5 89.4258 1099.43 94.5001 1093.17 94.5001L979.834 94.5001C973.574 94.5001 968.5 89.4258 968.5 83.1664Z" fill="#E6E6F9" stroke="#786EE2" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#4a2d8a" text-anchor="middle" dominant-baseline="central" x="1036.5" y="54">精A</text>
+        <text class="zprog" data-prog="精蟲-精A" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="1036.5" y="73">—</text>
+      </g>
+      <!-- 精C narrow -->
+      <g class="zone-tap" data-zone="精蟲-精C" onclick="openZone('精蟲-精C')" style="cursor:pointer">
+        <path class="zbg" d="M923.333 96.5001C926.187 96.5001 928.5 98.8133 928.5 101.667L928.5 228.333C928.5 231.187 926.187 233.5 923.333 233.5L902.667 233.5C899.813 233.5 897.5 231.187 897.5 228.333L897.5 101.667C897.5 98.8133 899.813 96.5001 902.667 96.5001Z" fill="#E6E6F9" stroke="#786EE2" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="11" fill="#4a2d8a" text-anchor="middle" dominant-baseline="central" x="913" y="162">精C</text>
+      </g>
+      <!-- 精B triangle -->
+      <g class="zone-tap" data-zone="精蟲-精B" onclick="openZone('精蟲-精B')" style="cursor:pointer">
+        <path class="zbg" d="M897.5 94.5C897.5 56.9447 927.945 26.5 965.5 26.5L965.5 94.5Z" fill="#E6E6F9" stroke="#786EE2" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="13" fill="#4a2d8a" text-anchor="middle" dominant-baseline="central" x="931" y="68">精B</text>
+        <text class="zprog" data-prog="精蟲-精B" font-family="-apple-system,sans-serif" font-size="11" fill="#555" text-anchor="middle" dominant-baseline="central" x="931" y="83">—</text>
+      </g>
+      <!-- 精E pink -->
+      <g class="zone-tap" data-zone="精蟲-精E" onclick="openZone('精蟲-精E')" style="cursor:pointer">
+        <path class="zbg" d="M1252.17 28.5C1258.43 28.5 1263.5 33.5742 1263.5 39.8335L1263.5 154.166C1263.5 160.426 1258.43 165.5 1252.17 165.5L1206.83 165.5C1200.57 165.5 1195.5 160.426 1195.5 154.166L1195.5 39.8335C1195.5 33.5742 1200.57 28.5 1206.83 28.5Z" fill="#FEF0FC" stroke="#FA1CAB" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#8a0050" text-anchor="middle" dominant-baseline="central" x="1229.5" y="91">精E</text>
+        <text class="zprog" data-prog="精蟲-精E" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="1229.5" y="110">—</text>
+      </g>
+      <!-- 精D (新增儲存區) -->
+      <g class="zone-tap" data-zone="精蟲-精D" onclick="openZone('精蟲-精D')" style="cursor:pointer">
+        <path class="zbg" d="M985.167 96.5C991.426 96.5 996.5 101.574 996.5 107.834L996.5 222.166C996.5 228.426 991.426 233.5 985.167 233.5L939.834 233.5C933.574 233.5 928.5 228.426 928.5 222.166L928.5 107.834C928.5 101.574 933.574 96.5 939.834 96.5Z" fill="#E6E6F9" stroke="#786EE2" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#4a2d8a" text-anchor="middle" dominant-baseline="central" x="962.5" y="158">精D</text>
+        <text class="zprog" data-prog="精蟲-精D" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="962.5" y="177">—</text>
+      </g>
+
+      <!-- ── 供應室 zones ── -->
+      <g class="zone-tap" data-zone="供應-洗手檯" onclick="openZone('供應-洗手檯')" style="cursor:pointer">
+        <path class="zbg" d="M338.5 566.667C338.5 562.709 341.709 559.5 345.667 559.5L446.333 559.5C450.291 559.5 453.5 562.709 453.5 566.667L453.5 595.333C453.5 599.291 450.291 602.5 446.333 602.5L345.667 602.5C341.709 602.5 338.5 599.291 338.5 595.333Z" fill="#E6E6F9" stroke="#786EE2" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="12" fill="#4a2d8a" text-anchor="middle" dominant-baseline="central" x="396" y="581">洗手檯</text>
+      </g>
+      <g class="zone-tap" data-zone="供應-供B" onclick="openZone('供應-供B')" style="cursor:pointer">
+        <path class="zbg" d="M741 556.5C778.831 556.5 809.5 586.945 809.5 624.5L741 624.5Z" fill="#E6E6F9" stroke="#786EE2" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="13" fill="#4a2d8a" text-anchor="middle" dominant-baseline="central" x="764" y="598">供B</text>
+        <text class="zprog" data-prog="供應-供B" font-family="-apple-system,sans-serif" font-size="11" fill="#555" text-anchor="middle" dominant-baseline="central" x="764" y="612">—</text>
+      </g>
+      <g class="zone-tap" data-zone="供應-供A" onclick="openZone('供應-供A')" style="cursor:pointer">
+        <path class="zbg" d="M597.5 632.834C597.5 626.574 602.574 621.5 608.834 621.5L723.167 621.5C729.426 621.5 734.5 626.574 734.5 632.834L734.5 678.167C734.5 684.426 729.426 689.5 723.167 689.5L608.834 689.5C602.574 689.5 597.5 684.426 597.5 678.167Z" fill="#E6E6F9" stroke="#786EE2" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="16" fill="#4a2d8a" text-anchor="middle" dominant-baseline="central" x="666" y="649">供A</text>
+        <text class="zprog" data-prog="供應-供A" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="666" y="668">—</text>
+      </g>
+
+      <!-- ── 儲藏室 zone ── -->
+      <g class="zone-tap" data-zone="儲藏室" onclick="openZone('儲藏室')" style="cursor:pointer">
+        <path class="zbg" d="M171.5 581.501C171.5 569.35 181.35 559.5 193.501 559.5L287.5 559.5C299.65 559.5 309.5 569.35 309.5 581.501L309.5 669.5C309.5 681.65 299.65 691.5 287.5 691.5L193.501 691.5C181.35 691.5 171.5 681.65 171.5 669.5Z" fill="#FEF0FC" stroke="#FA1CAB" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="14" fill="#8a0050" text-anchor="middle" dominant-baseline="central" x="240.5" y="619">儲藏室</text>
+        <text class="zprog" data-prog="儲藏室" font-family="-apple-system,sans-serif" font-size="12" fill="#555" text-anchor="middle" dominant-baseline="central" x="240.5" y="638">—</text>
+      </g>
+
+      <!-- ── 3F 精蟲室 (新房間) ── -->
+      <g class="zone-tap" data-zone="3F-鐵1" onclick="openZone('3F-鐵1')" style="cursor:pointer">
+        <path class="zbg" d="M1195.5 534.834C1195.5 528.574 1200.57 523.5 1206.83 523.5L1252.17 523.5C1258.43 523.5 1263.5 528.574 1263.5 534.834L1263.5 606.167C1263.5 612.426 1258.43 617.5 1252.17 617.5L1206.83 617.5C1200.57 617.5 1195.5 612.426 1195.5 606.167Z" fill="#DDE7CA" stroke="#6E9261" stroke-width="2.5"/>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="14" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="1229.5" y="564">3F</text>
+        <text class="zlabel" font-family="-apple-system,sans-serif" font-weight="700" font-size="13" fill="#3a5c30" text-anchor="middle" dominant-baseline="central" x="1229.5" y="581">鐵1</text>
+        <text class="zprog" data-prog="3F-鐵1" font-family="-apple-system,sans-serif" font-size="11" fill="#555" text-anchor="middle" dominant-baseline="central" x="1229.5" y="598">—</text>
+      </g>
+
+      <!-- Door arcs -->
+      <path d="M78.5 505.5C78.5 467.945 108.945 437.5 146.5 437.5L146.5 505.5Z" stroke="#555" stroke-width="2" stroke-dasharray="12 9" fill="#2a2a2a"/>
+      <path d="M165.5 617C165.5 654.832 134.832 685.5 97.0001 685.5L97.0001 617Z" stroke="#555" stroke-width="2" stroke-dasharray="12 9" fill="#2a2a2a"/>
+      <path d="M528.5 559.5C528.5 597.055 498.055 627.5 460.5 627.5L460.5 559.5Z" stroke="#555" stroke-width="2" stroke-dasharray="12 9" fill="#2a2a2a"/>
+      <path d="M1176.5 28.5C1176.5 66.0554 1146.06 96.5001 1108.5 96.5001L1108.5 28.5Z" stroke="#555" stroke-width="2" stroke-dasharray="12 9" fill="#2a2a2a"/>
+      <path d="M1195.5 694C1195.5 656.169 1225.94 625.5 1263.5 625.5L1263.5 694Z" stroke="#555" stroke-width="2" stroke-dasharray="12 9" fill="#2a2a2a"/>
+
+      <!-- Room outlines (white) -->
+      <rect x="2.5" y="20.5" width="876" height="488" stroke="#ddd" stroke-width="3" fill="none"/>
+      <rect x="888.5" y="20.5" width="387" height="488" stroke="#ddd" stroke-width="3" fill="none"/>
+      <rect x="2.5" y="516.5" width="324" height="183" stroke="#ddd" stroke-width="3" fill="none"/>
+      <rect x="333.5" y="516.5" width="545" height="183" stroke="#ddd" stroke-width="3" fill="none"/>
+      <rect x="888.5" y="516.5" width="387" height="183" stroke="#ddd" stroke-width="3" fill="none"/>
+
+      <!-- Room labels (white, bottom-left of each room) -->
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="22" fill="#fff" text-anchor="start" x="10" y="497">胚胎室</text>
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="22" fill="#fff" text-anchor="start" x="896" y="497">精蟲室</text>
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="22" fill="#fff" text-anchor="start" x="10" y="690">儲藏室</text>
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="22" fill="#fff" text-anchor="start" x="341" y="690">供應室</text>
+      <text font-family="-apple-system,sans-serif" font-weight="700" font-size="22" fill="#fff" text-anchor="start" x="896" y="690">3F 辦公室</text>
+
+    </svg>
+  </div>
+
+  <div class="drawer" id="drawer">
+    <div class="drw-hdr">
+      <span class="drw-title" id="drwTitle">—</span>
+      <span class="drw-prog" id="drwProg"></span>
+      <button class="btn-close" onclick="closeZone()">×</button>
+    </div>
+    <div class="drw-scroll">
+      <div class="cards-grid" id="cardsGrid"></div>
+    </div>
+    <!-- 數字鍵盤，固定在抽屜底部 -->
+    <div class="drw-numpad" id="numpad">
+      <button class="np-btn" ontouchstart="" onclick="npInput('7')">7</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('8')">8</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('9')">9</button>
+      <button class="np-btn np-bsp" ontouchstart="" onclick="npBack()">⌫</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('4')">4</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('5')">5</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('6')">6</button>
+      <button class="np-btn np-ok" ontouchstart="" onclick="npClose()">完成</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('1')">1</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('2')">2</button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('3')">3</button>
+      <button class="np-btn" style="background:#f0f0f5;box-shadow:none;pointer-events:none"></button>
+      <button class="np-btn" ontouchstart="" onclick="npInput('0')" style="grid-column:span 3">0</button>
+      <button class="np-btn" style="background:#f0f0f5;box-shadow:none;pointer-events:none"></button>
+    </div>
+  </div>
+</div>
+
+<div class="ftr">
+  <button class="btn-submit" id="btnSubmit" onclick="submitCount()">提交本次盤點</button>
+</div>
+
+
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbwdoAng6aOcufhV9E_OmrBTDbOV28R_1HMsIg3WKyocHWew0o5LYCX6fQdaJs5kDGXj/exec";
+const LS_KEY  = "hc_counts_v5";
+const LS_SUBMIT = "hc_last_submit";
+let allItems = [], counts = {}, curZone = null;
+let npActiveId = null, mode = '4w';
+
+function showSubmitStatus(m) {
+  const now = new Date();
+  const mm = now.getMonth()+1, dd = now.getDate();
+  const hh = String(now.getHours()).padStart(2,'0'), mi = String(now.getMinutes()).padStart(2,'0');
+  const txt = `✓ ${mm}/${dd} ${hh}:${mi} ${m==='2w'?'兩週':'四週'}已送出`;
+  localStorage.setItem(LS_SUBMIT, txt);
+  const el = document.getElementById('submitStatus');
+  if (el) el.textContent = txt;
+}
+function showToastMsg(msg) {
+  const t = document.createElement('div');
+  t.style.cssText = 'position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;z-index:9999;white-space:nowrap;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.4)';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+// ── 新盤點 ──
+function startNew() {
+  if (!confirm("確定要開始新盤點？目前已填的數量將全部清除。")) return;
+  localStorage.removeItem(LS_SUBMIT);
+  const el = document.getElementById('submitStatus'); if (el) el.textContent = '';
+  counts = {};
+  clearLocal();
+  document.getElementById("datePicker").value = todayISO();
+  refreshAll();
+  if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
+  document.getElementById("successOv").classList.remove("show");
+}
+
+// ── 數字鍵盤 ──
+function npFocus(id) {
+  npActiveId = id;
+  document.getElementById("numpad").classList.add("show");
+}
+function npClose() {
+  document.getElementById("numpad").classList.remove("show");
+  npActiveId = null;
+}
+function npSetVal(id, next) {
+  const el = document.getElementById("inp-"+id);
+  if (!el) return;
+  el.removeAttribute("readonly");
+  el.value = next;
+  el.setAttribute("readonly", "");
+  onInput(id, next);
+}
+function npInput(digit) {
+  if (!npActiveId) return;
+  const el = document.getElementById("inp-"+npActiveId);
+  if (!el) return;
+  const cur = el.value;
+  const next = (cur === "0" || cur === "") ? digit : cur + digit;
+  npSetVal(npActiveId, next);
+}
+function npBack() {
+  if (!npActiveId) return;
+  const el = document.getElementById("inp-"+npActiveId);
+  if (!el) return;
+  npSetVal(npActiveId, el.value.slice(0, -1));
+}
+
+function setMode(m) {
+  if (mode === m) return;
+  counts = {}; mode = m; npClose();
+  document.getElementById('btn4w').classList.toggle('active', m === '4w');
+  document.getElementById('btn2w').classList.toggle('active', m === '2w');
+  document.getElementById('btnSubmit').textContent = m === '2w' ? '提交兩週盤點' : '提交本次盤點';
+  saveLocal(); refreshAll();
+  if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
+}
+function set2w(id, val) {
+  if (counts[id] === val) { delete counts[id]; } else { counts[id] = val; }
+  saveLocal();
+  if (curZone) {
+    const it = zoneItems(curZone).find(i => i.id === id);
+    if (it) { const c = document.getElementById('card-'+id); if (c) c.outerHTML = cardHTML(it); }
+    refreshProg(zoneItems(curZone));
+  }
+  refreshAll();
+}
+function todayISO() { return new Date().toISOString().slice(0,10); }
+function toSD(iso) { const [,m,d] = iso.split("-"); return `${+m}/${+d}`; }
+function saveLocal() { localStorage.setItem(LS_KEY, JSON.stringify({ date: document.getElementById("datePicker").value, counts, mode })); }
+function loadLocal() { try { return JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch { return null; } }
+function clearLocal() { localStorage.removeItem(LS_KEY); }
+
+async function init() {
+  const lastSubmit = localStorage.getItem(LS_SUBMIT);
+  if (lastSubmit) { const el = document.getElementById('submitStatus'); if (el) el.textContent = lastSubmit; }
+  const dp = document.getElementById("datePicker");
+  dp.value = todayISO();
+  const saved = loadLocal();
+  const todayStr = todayISO();
+  const isTodaySave = saved && saved.date === todayStr;
+  if (isTodaySave) {
+    counts = saved.counts || {};
+    if (saved.mode && saved.mode !== mode) {
+      mode = saved.mode;
+      document.getElementById('btn4w').classList.toggle('active', mode === '4w');
+      document.getElementById('btn2w').classList.toggle('active', mode === '2w');
+      document.getElementById('btnSubmit').textContent = mode === '2w' ? '提交兩週盤點' : '提交本次盤點';
+    }
+  } else if (saved && saved.date !== todayStr) {
+    clearLocal(); // 日期不同的舊資料直接清除
+  }
+  try {
+    const [ir, cr] = await Promise.all([
+      fetch(`${GAS_URL}?action=items`),
+      fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(toSD(dp.value))}`)
+    ]);
+    const id = await ir.json(), cd = await cr.json();
+    allItems = id.items || [];
+    if (!isTodaySave && cd.counts) { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
+  } catch(e) { console.warn("GAS init failed:", e); }
+  refreshAll();
+}
+
+function openZone(name) {
+  curZone = name;
+  const items = zoneItems(name);
+  document.getElementById("drwTitle").textContent = name;
+  renderCards(items); refreshProg(items);
+  document.getElementById("drawer").classList.add("open");
+  document.querySelector(".drw-scroll").scrollTop = 0;
+  refreshAll();
+}
+function closeZone() {
+  document.getElementById("drawer").classList.remove("open");
+  curZone = null; refreshAll();
+}
+function zoneItems(name) { return allItems.filter(it => it.zone === name); }
+
+function renderCards(items) {
+  const g = document.getElementById("cardsGrid");
+  if (!items.length) {
+    g.innerHTML = `<div style="padding:24px;text-align:center;color:#aaa;font-size:13px;line-height:1.9">此區尚無品項<br>請在 Sheets「存放區域」欄<br>填入「${curZone}」</div>`;
+    return;
+  }
+  g.innerHTML = items.map(cardHTML).join("");
+}
+function cardHTML(it) {
+  const ul = it.isBulk ? it.bulkUnit : it.unit;
+  const ra = it.isBulk ? `<span style="font-size:9px;color:#bbb">(1${it.unit}=${it.ratio}${it.bulkUnit})</span>` : "";
+
+  if (mode === '2w') {
+    if (it.backupZone && !it.isBackup) return '';
+    const v = counts[it.id];
+    const isOk = v === '2w_ok', isNo = v === '2w_no';
+    const ref2w = it.safety > 0 ? `· 安全量 ${it.safety}` : (it.baseline > 0 ? `· 目標 ${it.baseline}` : '');
+    return `<div class="${isNo?'card warn':isOk?'card done':'card'}" id="card-${it.id}">
+      <div class="c-info">
+        <div class="c-name" title="${it.name}">${it.name}</div>
+        <div class="c-meta"><span>${ul}</span>${ra}<span class="c-safe"> ${ref2w}</span></div>
+      </div>
+      <div class="inp-row">
+        <button class="${isOk?'btn-stock yes':'btn-stock'}" ontouchstart="" onclick="set2w('${it.id}','2w_ok')">夠 ✓</button>
+        <button class="${isNo?'btn-stock no':'btn-stock'}"  ontouchstart="" onclick="set2w('${it.id}','2w_no')">不夠 ✗</button>
+      </div>
+    </div>`;
+  }
+
+  // fixed 品項：兩種模式都用夠/不夠（不數實際量）
+  if (it.fixed > 0) {
+    const v = counts[it.id];
+    const isOk = v === '2w_ok', isNo = v === '2w_no';
+    return `<div class="${isNo?'card warn':isOk?'card done':'card'}" id="card-${it.id}">
+      <div class="c-info">
+        <div class="c-name" title="${it.name}">${it.name}</div>
+        <div class="c-meta"><span>${ul}</span>${ra}<span class="c-safe"> · 目標 ${it.baseline}</span></div>
+      </div>
+      <div class="inp-row">
+        <button class="${isOk?'btn-stock yes':'btn-stock'}" ontouchstart="" onclick="set2w('${it.id}','2w_ok')">夠 ✓</button>
+        <button class="${isNo?'btn-stock no':'btn-stock'}"  ontouchstart="" onclick="set2w('${it.id}','2w_no')">不夠 ✗</button>
+      </div>
+    </div>`;
+  }
+
+  const v = counts[it.id] ?? "";
+  const isStockMode = it.backupZone && !it.isBackup;
+  const cls = v !== "" ? "card done" : "card";
+
+  if (isStockMode) {
+    const yesClass = v === "1" ? "btn-stock yes" : "btn-stock";
+    const noClass  = v === "0" ? "btn-stock no"  : "btn-stock";
+    return `<div class="${cls}" id="card-${it.id}">
+      <div class="c-info">
+        <div class="c-name" title="${it.name}">${it.name}</div>
+        <div class="c-meta"><span>${ul}</span>${ra}<span style="color:#bbb"> · 有備存位置</span></div>
+      </div>
+      <div class="inp-row">
+        <button class="${yesClass}" ontouchstart="" onclick="setStock('${it.id}','1')">已補齊</button>
+        <button class="${noClass}"  ontouchstart="" onclick="setStock('${it.id}','0')">未補齊</button>
+      </div>
+    </div>`;
+  }
+
+  const num = v === "" ? null : +v;
+  const w = it.safety > 0 && num !== null && num < it.safety;
+  const clsW = w ? "card warn" : cls;
+  const refStr = it.baseline > 0
+    ? `<span class="c-safe"> · 基準量 ${it.baseline}</span>`
+    : (it.safety > 0 ? `<span class="c-safe${w?" hi":""}"> · 安全量 ${it.safety}</span>` : "");
+  return `<div class="${clsW}" id="card-${it.id}">
+    <div class="c-info">
+      <div class="c-name" title="${it.name}">${it.name}</div>
+      <div class="c-meta"><span>${ul}</span>${ra}${refStr}</div>
+    </div>
+    <div class="inp-row">
+      <button class="btn-pm" ontouchstart="" onclick="adj('${it.id}',-1)">−</button>
+      <input class="c-inp" type="text" inputmode="none" min="0" id="inp-${it.id}" value="${v}" readonly onfocus="npFocus('${it.id}')" oninput="onInput('${it.id}',this.value)">
+      <button class="btn-pm" ontouchstart="" onclick="adj('${it.id}',1)">+</button>
+    </div>
+  </div>`;
+}
+function setStock(id, val) {
+  if (counts[id] === val) { delete counts[id]; }
+  else { counts[id] = val; }
+  saveLocal();
+  const card = document.getElementById("card-"+id);
+  if (card) {
+    const items = zoneItems(curZone);
+    const it = items.find(i => i.id === id);
+    if (it) card.outerHTML = cardHTML(it);
+  }
+  refreshProg(zoneItems(curZone));
+}
+function adj(id, d) {
+  const el = document.getElementById("inp-"+id); if (!el) return;
+  const n = Math.max(0, (el.value===""?0:+el.value)+d);
+  el.removeAttribute("readonly");
+  el.value = n;
+  el.setAttribute("readonly", "");
+  onInput(id, String(n));
+}
+function onInput(id, raw) {
+  raw = raw.trim();
+  if (raw === "" || isNaN(+raw)) delete counts[id]; else counts[id] = raw;
+  saveLocal();
+  const it = allItems.find(i => i.id === id);
+  if (it) {
+    const num = raw===""?null:+raw, w = it.safety > 0 && num !== null && num < it.safety;
+    const c = document.getElementById("card-"+id);
+    if (c) { c.className = w ? "card warn" : raw !== "" ? "card done" : "card"; const s = c.querySelector(".c-safe"); if (s && !it.baseline) s.className = "c-safe"+(w?" hi":""); }
+  }
+  if (curZone) refreshProg(zoneItems(curZone));
+}
+function refreshProg(items) {
+  const vis = mode === '2w' ? items.filter(it => !(it.backupZone && !it.isBackup)) : items;
+  const f = vis.filter(it => counts[it.id] !== undefined).length;
+  document.getElementById("drwProg").textContent = `${f}/${vis.length}`;
+}
+function refreshAll() {
+  const map = {};
+  for (const it of allItems) { if (!it.zone) continue; (map[it.zone]=map[it.zone]||[]).push(it); }
+  for (const [z, items] of Object.entries(map)) {
+    const vis = mode === '2w' ? items.filter(it => !(it.backupZone && !it.isBackup)) : items;
+    const f = vis.filter(it => counts[it.id] !== undefined).length;
+    const done = vis.length > 0 && f === vis.length;
+    for (const el of document.querySelectorAll(`[data-prog="${z}"]`)) el.textContent = `${f}/${vis.length}`;
+    for (const g of document.querySelectorAll(`[data-zone="${z}"]`)) g.classList.toggle("zone-done", done);
+  }
+  const all = allItems.filter(it => it.zone);
+  const visAll = mode === '2w' ? all.filter(it => !(it.backupZone && !it.isBackup)) : all;
+  const tf = visAll.filter(it => counts[it.id] !== undefined).length;
+  document.getElementById("totalBadge").textContent = `${tf}/${visAll.length}`;
+}
+document.getElementById("datePicker").addEventListener("change", async (e) => {
+  counts = {};
+  try {
+    const r = await fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(toSD(e.target.value))}`);
+    const d = await r.json();
+    if (d.counts) for (const [k,v] of Object.entries(d.counts)) counts[k] = String(v);
+  } catch {}
+  saveLocal(); refreshAll();
+  if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
+});
+async function submitCount() {
+  if (mode === '2w') { await submit2wOrder(); return; }
+  const date = toSD(document.getElementById("datePicker").value);
+  const countBy = document.getElementById("personPicker").value;
+  const arr = [];
+  for (const [id, v] of Object.entries(counts)) {
+    const it = allItems.find(i => i.id === id);
+    if (!it) continue;
+    if (it.fixed > 0) {
+      // 夠/不夠 轉成哨兵數字給 GAS：夠 = safety+1，不夠 = 0
+      arr.push({id, value: v === '2w_ok' ? it.safety + 1 : 0});
+    } else {
+      const n = +v;
+      if (!isNaN(n)) arr.push({id, value: n});
+    }
+  }
+  if (!arr.length) { alert("請先填入盤點數量"); return; }
+  const btn = document.getElementById("btnSubmit");
+  btn.disabled = true; btn.textContent = "送出中…";
+  try {
+    const res = await fetch(GAS_URL, { method: "POST", headers: {"Content-Type":"text/plain"}, body: JSON.stringify({action:"count", date, countBy, counts:arr, submittedAt: new Date().toISOString()}) });
+    const data = await res.json();
+    if (data.ok) { clearLocal(); showSubmitStatus('4w'); showToastMsg('✅ 盤點已送出！前往②訂單確認'); }
+    else alert("提交失敗：" + (data.error||"未知錯誤"));
+  } catch(e) { alert("網路錯誤：" + e.message); }
+  finally { btn.disabled = false; btn.textContent = "提交本次盤點"; }
+}
+async function submit2wOrder() {
+  const seen = new Set(), noItems = [];
+  for (const it of allItems) {
+    if (counts[it.id] !== '2w_no') continue;
+    const baseId = it.id.replace(/_(z1|z2|bk)$/, '');
+    if (seen.has(baseId)) continue;
+    seen.add(baseId);
+    noItems.push({...it, id: baseId});
+  }
+  if (!noItems.length) { alert('所有品項都標記為「夠」，不需補貨！'); return; }
+  const date = toSD(document.getElementById('datePicker').value);
+  const sessionId = 'igo_' + Date.now();
+  const items = noItems.map(it => {
+    const qty = it.fixed > 0 ? it.fixed : (it.safety > 0 ? it.safety : it.baseline);
+    return {
+      id: it.id, name: it.name, unit: it.unit,
+      channel: it.channel, igoName: it.igoName || it.name, igoSubName: it.igoSubName || '',
+      lineTarget: it.lineTarget || '', suggested: qty, qty,
+      current: null, warning: false, note: it.note || ''
+    };
+  });
+  const btn = document.getElementById('btnSubmit');
+  btn.disabled = true; btn.textContent = '送出中…';
+  try {
+    const res = await fetch(GAS_URL, {
+      method: 'POST', headers: {'Content-Type': 'text/plain'},
+      body: JSON.stringify({action: 'pending-order', sessionId, items, date})
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '未知錯誤');
+    localStorage.setItem('igo_session_id', sessionId);
+    clearLocal();
+    showSubmitStatus('2w');
+    showToastMsg(`✅ 兩週盤點送出！${noItems.length} 項需補貨，前往②訂單確認`);
+  } catch(e) { alert('送出失敗：' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '提交兩週盤點'; }
+}
+init();
+</script>
+</body>
+</html>
