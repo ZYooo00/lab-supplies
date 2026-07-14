@@ -586,7 +586,7 @@ function cardHTML(it) {
     if (it.backupZone && !it.isBackup) return '';
     const v = counts[it.id];
     const isOk = v === '2w_ok', isNo = v === '2w_no';
-    const ref2w = it.safety > 0 ? `· 安全量 <strong style="font-size:12px">${it.safety}</strong>` : (it.baseline > 0 ? `· 目標 ${it.baseline}` : '');
+    const ref2w = it.safety > 0 ? `· 安全量 <strong style="font-size:13px;font-weight:600;color:#1a1a1a">${it.safety}</strong>` : (it.baseline > 0 ? `· 目標 ${it.baseline}` : '');
     return `<div class="${isNo?'card warn':isOk?'card done':'card'}" id="card-${it.id}">
       <div class="c-info">
         <div class="c-name" title="${it.name}">${it.name}</div>
@@ -639,7 +639,7 @@ function cardHTML(it) {
   const clsW = w ? "card warn" : cls;
   const refStr = it.baseline > 0
     ? `<span class="c-safe"> · 基準量 ${it.baseline}</span>`
-    : (it.safety > 0 ? `<span class="c-safe${w?" hi":""}"> · 安全量 <strong style="font-size:12px">${it.safety}</strong></span>` : "");
+    : (it.safety > 0 ? `<span class="c-safe${w?" hi":""}"> · 安全量 <strong style="font-size:13px;font-weight:600;color:#1a1a1a">${it.safety}</strong></span>` : "");
   return `<div class="${clsW}" id="card-${it.id}">
     <div class="c-info">
       <div class="c-name" title="${it.name}">${it.name}</div>
