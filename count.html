@@ -463,6 +463,7 @@ function startNew() {
   const el = document.getElementById('submitStatus'); if (el) el.textContent = '';
   counts = {};
   clearLocal();
+  document.querySelectorAll('.zone-warn').forEach(g => g.classList.remove('zone-warn'));
   document.getElementById("datePicker").value = todayISO();
   refreshAll();
   if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
