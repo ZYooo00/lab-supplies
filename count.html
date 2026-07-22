@@ -127,6 +127,7 @@ body {
 .zone-done .zbg { fill: rgba(52,199,89,0.7); stroke: #2ea84e; }
 .zone-done .zlabel { fill: #1a4a20 !important; }
 .zone-empty { pointer-events: none !important; cursor: default !important; opacity: 0.35; }
+.zone-warn .zbg { stroke: #ff9500 !important; stroke-width: 4 !important; }
 /* 新盤點按鈕 */
 .btn-new-count { padding: 0 9px; height: 28px; background: #3a3a3a; border: 1px solid #555; border-radius: 7px; color: #aaa; font-size: 11px; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
 .btn-new-count:active { background: #555; }
@@ -714,6 +715,7 @@ function refreshAll() {
     for (const g of document.querySelectorAll(`[data-zone="${z}"]`)) {
       g.classList.toggle("zone-done", done);
       g.classList.toggle("zone-empty", items.length === 0);
+      if (done) g.classList.remove('zone-warn');
     }
   }
   // 在 Sheets 沒有任何品項的區域 → 套上 zone-empty（不可點，深色暗化）
@@ -740,6 +742,7 @@ document.getElementById("datePicker").addEventListener("change", async (e) => {
   if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
 });
 async function submitCount() {
+  if (!validateBeforeSubmit()) return;
   if (mode === '2w') { await submit2wOrder(); return; }
   const date = toSD(document.getElementById("datePicker").value);
   const countBy = document.getElementById("personPicker").value;
@@ -826,6 +829,35 @@ async function submit2wOrder() {
   finally { btn.disabled = false; btn.textContent = '提交兩週盤點'; }
 }
 
+function validateBeforeSubmit() {
+  const missing = {};
+  for (const it of allItems) {
+    if (!it.zone) continue;
+    const v = counts[it.id];
+    if (v === undefined || v === '') missing[it.zone] = (missing[it.zone] || 0) + 1;
+  }
+  if (!Object.keys(missing).length) return true;
+  showMissingModal(missing);
+  return false;
+}
+function showMissingModal(missing) {
+  for (const z of Object.keys(missing))
+    for (const g of document.querySelectorAll(`[data-zone="${z}"]`)) g.classList.add('zone-warn');
+  const rows = Object.entries(missing)
+    .map(([z, c]) => `<div style="padding:7px 0;border-bottom:1px solid #3a3a3c;font-size:13px;color:#eee">📍 ${z}<span style="float:right;color:#ff9500;font-weight:600">${c} 項未填</span></div>`)
+    .join('');
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:flex;align-items:center;justify-content:center';
+  ov.innerHTML = `<div style="background:#2a2a2c;border-radius:16px;padding:24px 20px;max-width:320px;width:90%;max-height:70vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+    <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:4px">⚠️ 尚有未完成的品項</div>
+    <div style="font-size:12px;color:#888;margin-bottom:14px">以下區域還有品項未點到，請補填後再送出：</div>
+    <div style="margin-bottom:18px">${rows}</div>
+    <button id="_mClose" style="width:100%;padding:12px;border:none;border-radius:10px;background:#ff9500;color:#fff;font-size:14px;font-weight:700;cursor:pointer">返回補填</button>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#_mClose').onclick = () => ov.remove();
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
+}
 function showAerationModal() {
   return new Promise(resolve => {
     const ov = document.createElement('div');
