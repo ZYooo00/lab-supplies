@@ -744,6 +744,8 @@ document.getElementById("datePicker").addEventListener("change", async (e) => {
 async function submitCount() {
   if (!validateBeforeSubmit()) return;
   if (mode === '2w') { await submit2wOrder(); return; }
+  const ok = await showAerationModal();
+  if (!ok) return;
   const date = toSD(document.getElementById("datePicker").value);
   const countBy = document.getElementById("personPicker").value;
   const arr = [];
