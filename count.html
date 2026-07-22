@@ -716,6 +716,15 @@ function refreshAll() {
       g.classList.toggle("zone-empty", items.length === 0);
     }
   }
+  // 在 Sheets 沒有任何品項的區域 → 套上 zone-empty（不可點，深色暗化）
+  const knownZones = new Set(Object.keys(map));
+  for (const g of document.querySelectorAll('[data-zone]')) {
+    const z = g.getAttribute('data-zone');
+    if (!knownZones.has(z)) {
+      g.classList.add('zone-empty');
+      for (const el of document.querySelectorAll(`[data-prog="${z}"]`)) el.textContent = '';
+    }
+  }
   const all = allItems.filter(it => it.zone);
   const tf = all.filter(it => counts[it.id] !== undefined).length;
   document.getElementById("totalBadge").textContent = `${tf}/${all.length}`;
@@ -760,7 +769,7 @@ async function submitCount() {
         if (it.backupZone && !it.isBackup) return item.value === 0;
         return it.safety > 0 && item.value < it.safety;
       });
-      clearLocal(); showSubmitStatus('4w');
+      showSubmitStatus('4w');
       if (lowItems.length > 0) showOrderModal(lowItems.length, '4w');
       else showToastMsg('✅ 盤點已送出！前往②訂單確認');
     } else alert("提交失敗：" + (data.error||"未知錯誤"));
@@ -784,7 +793,7 @@ async function submit2wOrder() {
 
   // 全部補齊
   if (!noItems.length) {
-    clearLocal(); showSubmitStatus('2w');
+    showSubmitStatus('2w');
     showToastMsg('✅ 全數已補齊！本次兩週盤點完成');
     return;
   }
@@ -811,7 +820,7 @@ async function submit2wOrder() {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '未知錯誤');
     localStorage.setItem('igo_session_id', sessionId);
-    clearLocal(); showSubmitStatus('2w');
+    showSubmitStatus('2w');
     showOrderModal(noItems.length, '2w');
   } catch(e) { alert('送出失敗：' + e.message); }
   finally { btn.disabled = false; btn.textContent = '提交兩週盤點'; }
@@ -825,7 +834,7 @@ function showAerationModal() {
       <div style="font-size:28px;margin-bottom:10px">💨</div>
       <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:6px">送出前提醒</div>
       <div style="font-size:13px;color:#aaa;margin-bottom:20px;line-height:1.8">
-        以下品項記得 <strong style="color:#ff9500">鋪氣</strong><br>
+        以下品項記得 <strong style="color:#ff9500">曝氣</strong><br>
         Organ Dish<br>Petri Dish<br>植入導管（Allwin）
       </div>
       <div style="display:flex;gap:10px">
