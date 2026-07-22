@@ -126,6 +126,7 @@ body {
 }
 .zone-done .zbg { fill: rgba(52,199,89,0.7); stroke: #2ea84e; }
 .zone-done .zlabel { fill: #1a4a20 !important; }
+.zone-empty { pointer-events: none !important; cursor: default !important; opacity: 0.35; }
 /* 新盤點按鈕 */
 .btn-new-count { padding: 0 9px; height: 28px; background: #3a3a3a; border: 1px solid #555; border-radius: 7px; color: #aaa; font-size: 11px; cursor: pointer; flex-shrink: 0; -webkit-tap-highlight-color: transparent; }
 .btn-new-count:active { background: #555; }
@@ -583,7 +584,22 @@ function cardHTML(it) {
   const ra = it.isBulk ? `<span style="font-size:9px;color:#bbb">(1${it.unit}=${it.ratio}${it.bulkUnit})</span>` : "";
 
   if (mode === '2w') {
-    if (it.backupZone && !it.isBackup) return '';
+    // 胚胎室主區（有備存區的品項）：提醒補充用，不參與訂貨計算
+    if (it.backupZone && !it.isBackup) {
+      const v = counts[it.id];
+      const isOk = v === '1', isNo = v === '0';
+      return `<div class="${isNo?'card warn':isOk?'card done':'card'}" id="card-${it.id}">
+        <div class="c-info">
+          <div class="c-name" title="${it.name}">${it.name}</div>
+          <div class="c-meta"><span>${ul}</span>${ra}<span style="color:#bbb"> · 記得補充</span></div>
+        </div>
+        <div class="inp-row">
+          <button class="${isOk?'btn-stock yes':'btn-stock'}" ontouchstart="" onclick="setStock('${it.id}','1')">已補齊</button>
+          <button class="${isNo?'btn-stock no':'btn-stock'}"  ontouchstart="" onclick="setStock('${it.id}','0')">未補齊</button>
+        </div>
+      </div>`;
+    }
+    // 備存區 / 一般品項：夠/不夠（參與訂貨計算）
     const v = counts[it.id];
     const isOk = v === '2w_ok', isNo = v === '2w_no';
     const ref2w = it.safety > 0 ? `· 安全量<strong style="font-size:13px;font-weight:600;color:#1a1a1a;margin-left:0.5em">${it.safety}</strong>` : (it.baseline > 0 ? `· 目標 ${it.baseline}` : '');
@@ -685,24 +701,24 @@ function onInput(id, raw) {
   if (curZone) refreshProg(zoneItems(curZone));
 }
 function refreshProg(items) {
-  const vis = mode === '2w' ? items.filter(it => !(it.backupZone && !it.isBackup)) : items;
-  const f = vis.filter(it => counts[it.id] !== undefined).length;
-  document.getElementById("drwProg").textContent = `${f}/${vis.length}`;
+  const f = items.filter(it => counts[it.id] !== undefined).length;
+  document.getElementById("drwProg").textContent = `${f}/${items.length}`;
 }
 function refreshAll() {
   const map = {};
   for (const it of allItems) { if (!it.zone) continue; (map[it.zone]=map[it.zone]||[]).push(it); }
   for (const [z, items] of Object.entries(map)) {
-    const vis = mode === '2w' ? items.filter(it => !(it.backupZone && !it.isBackup)) : items;
-    const f = vis.filter(it => counts[it.id] !== undefined).length;
-    const done = vis.length > 0 && f === vis.length;
-    for (const el of document.querySelectorAll(`[data-prog="${z}"]`)) el.textContent = `${f}/${vis.length}`;
-    for (const g of document.querySelectorAll(`[data-zone="${z}"]`)) g.classList.toggle("zone-done", done);
+    const f = items.filter(it => counts[it.id] !== undefined).length;
+    const done = items.length > 0 && f === items.length;
+    for (const el of document.querySelectorAll(`[data-prog="${z}"]`)) el.textContent = items.length ? `${f}/${items.length}` : '';
+    for (const g of document.querySelectorAll(`[data-zone="${z}"]`)) {
+      g.classList.toggle("zone-done", done);
+      g.classList.toggle("zone-empty", items.length === 0);
+    }
   }
   const all = allItems.filter(it => it.zone);
-  const visAll = mode === '2w' ? all.filter(it => !(it.backupZone && !it.isBackup)) : all;
-  const tf = visAll.filter(it => counts[it.id] !== undefined).length;
-  document.getElementById("totalBadge").textContent = `${tf}/${visAll.length}`;
+  const tf = all.filter(it => counts[it.id] !== undefined).length;
+  document.getElementById("totalBadge").textContent = `${tf}/${all.length}`;
 }
 document.getElementById("datePicker").addEventListener("change", async (e) => {
   counts = {};
@@ -736,21 +752,44 @@ async function submitCount() {
   try {
     const res = await fetch(GAS_URL, { method: "POST", headers: {"Content-Type":"text/plain"}, body: JSON.stringify({action:"count", date, countBy, counts:arr, submittedAt: new Date().toISOString()}) });
     const data = await res.json();
-    if (data.ok) { clearLocal(); showSubmitStatus('4w'); showToastMsg('✅ 盤點已送出！前往②訂單確認'); }
-    else alert("提交失敗：" + (data.error||"未知錯誤"));
+    if (data.ok) {
+      const lowItems = arr.filter(item => {
+        const it = allItems.find(i => i.id === item.id);
+        if (!it) return false;
+        if (it.fixed > 0) return item.value === 0;
+        if (it.backupZone && !it.isBackup) return item.value === 0;
+        return it.safety > 0 && item.value < it.safety;
+      });
+      clearLocal(); showSubmitStatus('4w');
+      if (lowItems.length > 0) showOrderModal(lowItems.length, '4w');
+      else showToastMsg('✅ 盤點已送出！前往②訂單確認');
+    } else alert("提交失敗：" + (data.error||"未知錯誤"));
   } catch(e) { alert("網路錯誤：" + e.message); }
   finally { btn.disabled = false; btn.textContent = "提交本次盤點"; }
 }
 async function submit2wOrder() {
+  // 送出前：曝氣提醒
+  const ok = await showAerationModal();
+  if (!ok) return;
+
   const seen = new Set(), noItems = [];
   for (const it of allItems) {
+    if (it.backupZone && !it.isBackup) continue; // 主區：提醒用，不計算
     if (counts[it.id] !== '2w_no') continue;
     const baseId = it.id.replace(/_(z1|z2|bk)$/, '');
     if (seen.has(baseId)) continue;
     seen.add(baseId);
     noItems.push({...it, id: baseId});
   }
-  if (!noItems.length) { alert('所有品項都標記為「夠」，不需補貨！'); return; }
+
+  // 全部補齊
+  if (!noItems.length) {
+    clearLocal(); showSubmitStatus('2w');
+    showToastMsg('✅ 全數已補齊！本次兩週盤點完成');
+    return;
+  }
+
+  // 有缺貨：送出訂單
   const date = toSD(document.getElementById('datePicker').value);
   const sessionId = 'igo_' + Date.now();
   const items = noItems.map(it => {
@@ -772,11 +811,52 @@ async function submit2wOrder() {
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '未知錯誤');
     localStorage.setItem('igo_session_id', sessionId);
-    clearLocal();
-    showSubmitStatus('2w');
-    showToastMsg(`✅ 兩週盤點送出！${noItems.length} 項需補貨，前往②訂單確認`);
+    clearLocal(); showSubmitStatus('2w');
+    showOrderModal(noItems.length, '2w');
   } catch(e) { alert('送出失敗：' + e.message); }
   finally { btn.disabled = false; btn.textContent = '提交兩週盤點'; }
+}
+
+function showAerationModal() {
+  return new Promise(resolve => {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:flex;align-items:center;justify-content:center';
+    ov.innerHTML = `<div style="background:#2a2a2c;border-radius:16px;padding:24px 20px;max-width:300px;width:88%;box-shadow:0 8px 40px rgba(0,0,0,.6);text-align:center">
+      <div style="font-size:28px;margin-bottom:10px">💨</div>
+      <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:6px">送出前提醒</div>
+      <div style="font-size:13px;color:#aaa;margin-bottom:20px;line-height:1.8">
+        以下品項記得 <strong style="color:#ff9500">鋪氣</strong><br>
+        Organ Dish<br>Petri Dish<br>植入導管（Allwin）
+      </div>
+      <div style="display:flex;gap:10px">
+        <button id="_aCancel" style="flex:1;padding:11px;border:none;border-radius:10px;background:#3a3a3c;color:#aaa;font-size:14px;cursor:pointer">取消</button>
+        <button id="_aConfirm" style="flex:1;padding:11px;border:none;border-radius:10px;background:#007aff;color:#fff;font-size:14px;font-weight:700;cursor:pointer">確認送出</button>
+      </div>
+    </div>`;
+    document.body.appendChild(ov);
+    ov.querySelector('#_aCancel').onclick  = () => { ov.remove(); resolve(false); };
+    ov.querySelector('#_aConfirm').onclick = () => { ov.remove(); resolve(true); };
+  });
+}
+
+function showOrderModal(count, mode2w4w) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:500;display:flex;align-items:center;justify-content:center';
+  const label = mode2w4w === '2w' ? '兩週盤點完成' : '四週盤點完成';
+  const detail = mode2w4w === '2w'
+    ? `共 <strong style="color:#fff">${count}</strong> 項需補貨`
+    : `共 <strong style="color:#fff">${count}</strong> 項低於安全量`;
+  ov.innerHTML = `<div style="background:#2a2a2c;border-radius:16px;padding:24px 20px;max-width:300px;width:88%;box-shadow:0 8px 40px rgba(0,0,0,.6);text-align:center">
+    <div style="font-size:28px;margin-bottom:10px">📋</div>
+    <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:6px">${label}</div>
+    <div style="font-size:13px;color:#aaa;margin-bottom:20px;line-height:1.8">
+      ${detail}<br>請前往 <strong style="color:#007aff">② 訂貨頁面</strong> 確認訂單
+    </div>
+    <button id="_oClose" style="width:100%;padding:12px;border:none;border-radius:10px;background:#007aff;color:#fff;font-size:14px;font-weight:700;cursor:pointer">知道了</button>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#_oClose').onclick = () => ov.remove();
+  ov.addEventListener('click', e => { if (e.target === ov) ov.remove(); });
 }
 init();
 </script>
