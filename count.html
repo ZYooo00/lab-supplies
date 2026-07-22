@@ -467,7 +467,7 @@ function startNew() {
   document.getElementById("datePicker").value = todayISO();
   refreshAll();
   if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
-  document.getElementById("successOv").classList.remove("show");
+  const ov = document.getElementById("successOv"); if (ov) ov.classList.remove("show");
 }
 
 // ── 數字鍵盤 ──
@@ -553,7 +553,7 @@ async function init() {
     ]);
     const id = await ir.json(), cd = await cr.json();
     allItems = id.items || [];
-    if (!isTodaySave && cd.counts) { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
+    if (!isTodaySave && cd.counts && mode !== '2w') { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
   } catch(e) { console.warn("GAS init failed:", e); }
   refreshAll();
 }
@@ -734,11 +734,13 @@ function refreshAll() {
 }
 document.getElementById("datePicker").addEventListener("change", async (e) => {
   counts = {};
-  try {
-    const r = await fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(toSD(e.target.value))}`);
-    const d = await r.json();
-    if (d.counts) for (const [k,v] of Object.entries(d.counts)) counts[k] = String(v);
-  } catch {}
+  if (mode !== '2w') {
+    try {
+      const r = await fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(toSD(e.target.value))}`);
+      const d = await r.json();
+      if (d.counts) for (const [k,v] of Object.entries(d.counts)) counts[k] = String(v);
+    } catch {}
+  }
   saveLocal(); refreshAll();
   if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
 });
