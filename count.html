@@ -702,14 +702,14 @@ function onInput(id, raw) {
   if (curZone) refreshProg(zoneItems(curZone));
 }
 function refreshProg(items) {
-  const f = items.filter(it => counts[it.id] !== undefined).length;
+  const f = items.filter(it => isFilled(it, counts[it.id])).length;
   document.getElementById("drwProg").textContent = `${f}/${items.length}`;
 }
 function refreshAll() {
   const map = {};
   for (const it of allItems) { if (!it.zone) continue; (map[it.zone]=map[it.zone]||[]).push(it); }
   for (const [z, items] of Object.entries(map)) {
-    const f = items.filter(it => counts[it.id] !== undefined).length;
+    const f = items.filter(it => isFilled(it, counts[it.id])).length;
     const done = items.length > 0 && f === items.length;
     for (const el of document.querySelectorAll(`[data-prog="${z}"]`)) el.textContent = items.length ? `${f}/${items.length}` : '';
     for (const g of document.querySelectorAll(`[data-zone="${z}"]`)) {
@@ -728,7 +728,7 @@ function refreshAll() {
     }
   }
   const all = allItems.filter(it => it.zone);
-  const tf = all.filter(it => counts[it.id] !== undefined).length;
+  const tf = all.filter(it => isFilled(it, counts[it.id])).length;
   document.getElementById("totalBadge").textContent = `${tf}/${all.length}`;
 }
 document.getElementById("datePicker").addEventListener("change", async (e) => {
@@ -831,12 +831,20 @@ async function submit2wOrder() {
   finally { btn.disabled = false; btn.textContent = '提交兩週盤點'; }
 }
 
+function isFilled(it, v) {
+  if (v === undefined || v === '') return false;
+  if (mode === '2w') {
+    if (it.backupZone && !it.isBackup) return v === '1' || v === '0';
+    return v === '2w_ok' || v === '2w_no';
+  }
+  return true;
+}
 function validateBeforeSubmit() {
   const missing = {};
   for (const it of allItems) {
     if (!it.zone) continue;
     const v = counts[it.id];
-    if (v === undefined || v === '') missing[it.zone] = (missing[it.zone] || 0) + 1;
+    if (!isFilled(it, v)) missing[it.zone] = (missing[it.zone] || 0) + 1;
   }
   if (!Object.keys(missing).length) return true;
   showMissingModal(missing);
