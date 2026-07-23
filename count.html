@@ -533,18 +533,17 @@ async function init() {
   const dp = document.getElementById("datePicker");
   dp.value = todayISO();
   const saved = loadLocal();
-  const todayStr = todayISO();
-  const isTodaySave = saved && saved.date === todayStr;
-  if (isTodaySave) {
+  let loadedFromLocal = false;
+  if (saved && saved.date) {
     counts = saved.counts || {};
+    dp.value = saved.date;
     if (saved.mode && saved.mode !== mode) {
       mode = saved.mode;
       document.getElementById('btn4w').classList.toggle('active', mode === '4w');
       document.getElementById('btn2w').classList.toggle('active', mode === '2w');
       document.getElementById('btnSubmit').textContent = mode === '2w' ? '提交兩週盤點' : '提交本次盤點';
     }
-  } else if (saved && saved.date !== todayStr) {
-    clearLocal(); // 日期不同的舊資料直接清除
+    loadedFromLocal = true;
   }
   try {
     const [ir, cr] = await Promise.all([
@@ -553,7 +552,7 @@ async function init() {
     ]);
     const id = await ir.json(), cd = await cr.json();
     allItems = id.items || [];
-    if (!isTodaySave && cd.counts && mode !== '2w') { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
+    if (!loadedFromLocal && cd.counts && mode !== '2w') { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
   } catch(e) { console.warn("GAS init failed:", e); }
   refreshAll();
 }
