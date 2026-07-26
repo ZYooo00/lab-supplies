@@ -190,10 +190,11 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
     <table class="igo-table">
       <thead>
         <tr>
-          <th style="width:35%">品項</th>
-          <th style="width:30%">iGo 搜尋名稱</th>
-          <th class="num" style="width:13%">現有量</th>
-          <th class="num" style="width:12%">基準量</th>
+          <th style="width:28%">品項</th>
+          <th style="width:22%">iGo 搜尋名稱</th>
+          <th class="num" style="width:16%">基準量 / 安全量</th>
+          <th class="num" style="width:11%">現有量</th>
+          <th class="num" style="width:13%">預計訂購量</th>
           <th class="num" style="width:10%">訂購量</th>
         </tr>
       </thead>
@@ -332,12 +333,22 @@ function renderIgo() {
     const currentStr = it.rawCurrent !== null && it.rawCurrent !== undefined
       ? `${it.rawCurrent}<span class="unit-label">${it.bulkUnit}</span>`
       : it.current !== null ? `${it.current}<span class="unit-label">${it.unit}</span>` : "—";
+    const baselineStr = it.baseline > 0
+      ? `${it.baseline}<span class="unit-label">${it.unit}</span>`
+      : "—";
+    const safetyStr = it.safety > 0
+      ? `<span style="color:#ff9500">${it.safety}<span class="unit-label">${it.unit}</span></span>`
+      : "";
+    const baselineSafetyStr = it.safety > 0
+      ? `${baselineStr} <span style="color:#bbb;font-size:10px">/</span> ${safetyStr}`
+      : baselineStr;
     return `<tr>
       <td>
         <div class="item-name">${it.name}${warnTag}</div>
         ${it.note ? `<div class="item-igo" style="color:#f80">${it.note}</div>` : ""}
       </td>
       <td><div class="item-igo" style="font-size:12px;color:#555">${it.igoName || it.name}</div></td>
+      <td class="current-cell" style="color:#555">${baselineSafetyStr}</td>
       <td class="current-cell">${currentStr}</td>
       <td class="current-cell" style="color:#aaa">${it.suggested > 0 ? it.suggested + `<span class="unit-label">${it.unit}</span>` : "—"}</td>
       <td>
