@@ -546,14 +546,15 @@ async function init() {
     loadedFromLocal = true;
   }
   try {
-    const [ir, cr] = await Promise.all([
-      fetch(`${GAS_URL}?action=items`),
-      fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(toSD(dp.value))}`)
-    ]);
-    const id = await ir.json(), cd = await cr.json();
+    const ir = await fetch(`${GAS_URL}?action=items`);
+    const id = await ir.json();
     allItems = id.items || [];
+  } catch(e) { console.warn("GAS items failed:", e); }
+  try {
+    const cr = await fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(toSD(dp.value))}`);
+    const cd = await cr.json();
     if (!loadedFromLocal && cd.counts && mode !== '2w') { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
-  } catch(e) { console.warn("GAS init failed:", e); }
+  } catch(e) { console.warn("GAS count failed:", e); }
   refreshAll();
 }
 
