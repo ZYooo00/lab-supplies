@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.10
+// @version      0.11
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -124,7 +124,7 @@
       GM_setValue("igo_completed", true);
       clearGasPendingOrder();
       showBanner(`✅ 全 ${items.length} 項處理完畢！正在前往領料車…`, "green");
-      await sleep(1500);
+      await sleep(3000); // 拉長一點，確保最後一項的加入請求真的跑完再跳頁
       location.href = "/staff/cart/show";
       return;
     }
@@ -243,15 +243,30 @@
     // 確認送出
     const submitBtn = document.querySelector("form#add-to-cart button[type='submit']");
     if (submitBtn) {
-      submitBtn.click();
-      log(`已送出 ${item.igoName} × ${fillQty} ${unit}`);
-      // 記錄實際加入購物車的量
-      const receiptList = JSON.parse(GM_getValue("igo_receipt", "[]"));
-      receiptList.push({ id: item.id, name: item.name, qty: fillQty, unit });
-      GM_setValue("igo_receipt", JSON.stringify(receiptList));
+      if (submitBtn.disabled) {
+        addSkipped(item.name, "加入按鈕被網站鎖定（可能需手動選規格）");
+      } else {
+        submitBtn.click();
+        log(`已送出 ${item.igoName} × ${fillQty} ${unit}`);
+        // 記錄實際加入購物車的量
+        const receiptList = JSON.parse(GM_getValue("igo_receipt", "[]"));
+        receiptList.push({ id: item.id, name: item.name, qty: fillQty, unit });
+        GM_setValue("igo_receipt", JSON.stringify(receiptList));
+      }
+    } else {
+      addSkipped(item.name, "找不到確認送出按鈕");
     }
 
-    await sleep(1200); // 等 modal 關閉 / 卡片更新
+    await sleep(2000); // 等 modal 關閉 / 卡片更新，拉長一點給伺服器時間處理
+
+    // 防呆：等完了 modal 還開著，代表網站沒有真的接受這筆加入（不是單純的畫面延遲）
+    const openModal = document.querySelector("form#add-to-cart");
+    if (openModal && openModal.offsetParent !== null) {
+      addSkipped(item.name, "網站拒絕加入（請留意是否庫存不足或需特殊操作）");
+      const closeBtn = document.querySelector("[data-bs-dismiss='modal'], .modal-header .btn-close");
+      if (closeBtn) closeBtn.click();
+      await sleep(500);
+    }
 
     // 繼續下一項
     GM_setValue("igo_index", idx + 1);
@@ -437,13 +452,20 @@
     const el = typeof selectorOrEl === "string"
       ? document.querySelector(selectorOrEl) : selectorOrEl;
     if (!el) { log("找不到元素：" + selectorOrEl); return; }
+    el.focus();
     const setter = Object.getOwnPropertyDescriptor(
       el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value"
     )?.set;
     if (setter) setter.call(el, value);
     else el.value = value;
+    // 補齊一整套模擬打字事件，避免嚴格的前端框架只認真實鍵盤事件、
+    // 沒收到就不更新內部狀態（送出時數量被當成 0）
+    el.dispatchEvent(new KeyboardEvent("keydown",  { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true }));
     el.dispatchEvent(new Event("input",  { bubbles: true }));
+    el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.blur();
   }
 
   function click(selector) {
