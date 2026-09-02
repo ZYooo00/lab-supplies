@@ -175,6 +175,7 @@ body {
     <button id="btn2w" class="mode-btn" onclick="setMode('2w')">兩週</button>
   </div>
   <span id="submitStatus" class="submit-status"></span>
+  <span id="syncStatus" class="submit-status"></span>
   <span class="sp"></span>
   <span class="badge" id="totalBadge">—</span>
   <button class="btn-new-count" onclick="startNew()">＋新盤點</button>
@@ -436,8 +437,73 @@ body {
 const GAS_URL = "https://script.google.com/macros/s/AKfycbwdoAng6aOcufhV9E_OmrBTDbOV28R_1HMsIg3WKyocHWew0o5LYCX6fQdaJs5kDGXj/exec";
 const LS_KEY  = "hc_counts_v5";
 const LS_SUBMIT = "hc_last_submit";
+const LS_FAILED = "hc_failed_sync_v1";
 let allItems = [], counts = {}, curZone = null;
 let npActiveId = null, mode = '4w';
+let pendingSyncQueue = {}; // {id: value}，累積後批次送出
+let syncTimer = null;
+
+// ── 即時同步：收集器 + 批次送出（1.8 秒收集一次，降低 GAS 併發負擔）──
+
+function setSyncStatus(text, color) {
+  const el = document.getElementById('syncStatus');
+  if (el) { el.textContent = text; el.style.color = color || '#888'; }
+}
+function loadFailedQueue() {
+  try { return JSON.parse(localStorage.getItem(LS_FAILED) || "[]"); } catch { return []; }
+}
+function saveFailedQueue(arr) { localStorage.setItem(LS_FAILED, JSON.stringify(arr)); }
+function pushFailedBatch(batch) {
+  const q = loadFailedQueue();
+  q.push(batch);
+  saveFailedQueue(q);
+}
+async function postCounts(date, countBy, items) {
+  const res = await fetch(GAS_URL, {
+    method: "POST", headers: {"Content-Type":"text/plain"},
+    body: JSON.stringify({ action: "save-item-counts", date, countBy, items })
+  });
+  const data = await res.json();
+  if (!data.ok) throw new Error(data.error || "寫入失敗");
+  return data;
+}
+function queueSync(id, value) {
+  pendingSyncQueue[id] = value;
+  setSyncStatus('同步中…');
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => { flushSyncQueue(); }, 1800);
+}
+async function flushSyncQueue() {
+  clearTimeout(syncTimer);
+  const ids = Object.keys(pendingSyncQueue);
+  if (!ids.length) return true;
+  const date = toSD(document.getElementById("datePicker").value);
+  const countBy = document.getElementById("personPicker").value;
+  const items = ids.map(id => ({ id, value: pendingSyncQueue[id] }));
+  pendingSyncQueue = {};
+  try {
+    await postCounts(date, countBy, items);
+    setSyncStatus('已同步', '#34c759');
+    return true;
+  } catch (e) {
+    pushFailedBatch({ date, countBy, items });
+    setSyncStatus('⚠️ 離線暫存', '#ff9500');
+    return false;
+  }
+}
+async function retryFailedQueue() {
+  const queue = loadFailedQueue();
+  if (!queue.length) return true;
+  const remaining = [];
+  let allOk = true;
+  for (const batch of queue) {
+    try { await postCounts(batch.date, batch.countBy, batch.items); }
+    catch (e) { remaining.push(batch); allOk = false; }
+  }
+  saveFailedQueue(remaining);
+  setSyncStatus(allOk ? '已同步' : '⚠️ 離線暫存', allOk ? '#34c759' : '#ff9500');
+  return allOk;
+}
 
 function showSubmitStatus(m) {
   const now = new Date();
@@ -512,7 +578,7 @@ function setMode(m) {
   if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
 }
 function set2w(id, val) {
-  if (counts[id] === val) { delete counts[id]; } else { counts[id] = val; }
+  if (counts[id] === val) { delete counts[id]; } else { counts[id] = val; queueSync(id, val); }
   saveLocal();
   if (curZone) {
     const it = zoneItems(curZone).find(i => i.id === id);
@@ -555,7 +621,17 @@ async function init() {
     const cd = await cr.json();
     if (!loadedFromLocal && cd.counts && mode !== '2w') { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
   } catch(e) { console.warn("GAS count failed:", e); }
+
+  // 離線保護：只用同一天的離線暫存資料覆蓋畫面，避免蓋掉雲端其他天的資料，也避免跨日誤植
+  const todaySD = toSD(dp.value);
+  loadFailedQueue().forEach(batch => {
+    if (batch.date !== todaySD) return;
+    (batch.items || []).forEach(it => { counts[it.id] = String(it.value); });
+  });
+
   refreshAll();
+  window.addEventListener('online', () => retryFailedQueue());
+  retryFailedQueue();
 }
 
 function openZone(name) {
@@ -672,7 +748,7 @@ function cardHTML(it) {
 }
 function setStock(id, val) {
   if (counts[id] === val) { delete counts[id]; }
-  else { counts[id] = val; }
+  else { counts[id] = val; queueSync(id, val); }
   saveLocal();
   const card = document.getElementById("card-"+id);
   if (card) {
@@ -692,7 +768,7 @@ function adj(id, d) {
 }
 function onInput(id, raw) {
   raw = raw.trim();
-  if (raw === "" || isNaN(+raw)) delete counts[id]; else counts[id] = raw;
+  if (raw === "" || isNaN(+raw)) delete counts[id]; else { counts[id] = raw; queueSync(id, raw); }
   saveLocal();
   const it = allItems.find(i => i.id === id);
   if (it) {
@@ -746,6 +822,12 @@ document.getElementById("datePicker").addEventListener("change", async (e) => {
 });
 async function submitCount() {
   if (!validateBeforeSubmit()) return;
+  const flushOk = await flushSyncQueue();
+  const retryOk = await retryFailedQueue();
+  if (!flushOk || !retryOk) {
+    alert('尚有離線資料無法同步，請確認網路連線後再提交');
+    return;
+  }
   if (mode === '2w') { await submit2wOrder(); return; }
   const ok = await showAerationModal();
   if (!ok) return;
@@ -806,13 +888,12 @@ async function submit2wOrder() {
     return;
   }
 
-  // 有缺貨：送出訂單
+  // 有缺貨：存成兩週草稿，交給 order.html 依胚胎室／精蟲室／其他分三張單送出
   const date = toSD(document.getElementById('datePicker').value);
-  const sessionId = 'igo_' + Date.now();
   const items = noItems.map(it => {
     const qty = it.fixed > 0 ? it.fixed : (it.safety > 0 ? it.safety : it.baseline);
     return {
-      id: it.id, name: it.name, unit: it.unit,
+      id: it.id, name: it.name, unit: it.unit, room: it.room || '其他',
       channel: it.channel, igoName: it.igoName || it.name, igoSubName: it.igoSubName || '',
       lineTarget: it.lineTarget || '', suggested: qty, qty,
       current: null, warning: false, note: it.note || ''
@@ -823,11 +904,10 @@ async function submit2wOrder() {
   try {
     const res = await fetch(GAS_URL, {
       method: 'POST', headers: {'Content-Type': 'text/plain'},
-      body: JSON.stringify({action: 'pending-order', sessionId, items, date})
+      body: JSON.stringify({action: 'save-2w-draft', items, date})
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error || '未知錯誤');
-    localStorage.setItem('igo_session_id', sessionId);
     showSubmitStatus('2w');
     showOrderModal(noItems.length, '2w');
   } catch(e) { alert('送出失敗：' + e.message); }
