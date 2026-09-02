@@ -494,7 +494,10 @@ async function doSendToIgo(room, payload) {
     markRoomSent(room);
     toast(`已存入 ${payload.length} 項，即將開啟 iGo`);
     setTimeout(() => {
-      window.open("https://tp-igo.e-stork.com.tw/login", "_blank");
+      const popup = window.open("https://tp-igo.e-stork.com.tw/login", "_blank");
+      // 清單已經確實存進 GAS 了，這裡失敗只是「沒開成分頁」，不影響訂單本身，
+      // 所以不用把按鈕解鎖重送，只要提示 ZY 自己點連結手動開啟即可。
+      if (!popup) showPopupBlockedToast();
     }, 1200);
   } catch (e) {
     toast("送出失敗：" + e.message);
@@ -533,9 +536,21 @@ function applySentLockUI(room) {
   const slug = ROOM_SLUG[room];
   const btn = document.getElementById("btnSendIgo-" + slug);
   if (!btn) return;
+  // 按鈕永遠可以點：送過一次後文字變成「重新送單」，既能一眼看出送過、也不怕
+  // 彈出視窗被擋、需要補送等情況卡住沒辦法再按。真的重複送出時，
+  // sendToIgo() 本身的覆寫防呆檢查會擋下還沒被 Tampermonkey 取走的舊清單。
   const sent = localStorage.getItem(`igo_sent_${orderData?.date || ""}_${room}`) === "true";
-  btn.textContent = sent ? "✅ 已送出" : "送出 iGo 訂單";
-  btn.disabled = sent;
+  btn.textContent = sent ? "🔁 重新送單" : "送出 iGo 訂單";
+  btn.disabled = false;
+}
+// 彈出視窗被封鎖時的提示：清單已經存進去了，只是分頁沒開成，給一個手動連結
+function showPopupBlockedToast() {
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:#1c1c1e;color:#fff;padding:12px 18px;border-radius:12px;font-size:13px;z-index:9999;display:flex;align-items:center;gap:10px;box-shadow:0 4px 16px rgba(0,0,0,.3)";
+  ov.innerHTML = `<span>⚠️ 瀏覽器擋掉彈出視窗了，清單已經存好，請手動開啟：</span>
+    <a href="https://tp-igo.e-stork.com.tw/login" target="_blank" style="color:#4da3ff;font-weight:700;white-space:nowrap">前往 iGo</a>
+    <button style="background:none;border:none;color:#888;font-size:16px;cursor:pointer;padding:0 0 0 6px" onclick="this.parentElement.remove()">✕</button>`;
+  document.body.appendChild(ov);
 }
 function cleanupOldSentLocks(currentDate) {
   const prefix = "igo_sent_";
