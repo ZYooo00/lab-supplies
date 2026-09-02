@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.9
+// @version      0.10
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
