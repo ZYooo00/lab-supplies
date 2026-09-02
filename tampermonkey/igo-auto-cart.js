@@ -162,15 +162,18 @@
                      || document.querySelector("div.input-group input[type='text']");
     if (!searchInput) { showBanner("⚠️ 找不到搜尋欄", "red"); return; }
 
-    fill(searchInput, "");
-    await sleep(200);
-    fill(searchInput, item.igoName); // 只用主品名搜尋
-    searchInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
-    searchInput.dispatchEvent(new Event("input", { bubbles: true }));
-    await sleep(800); // 等 Shuffle.js 過濾
-
-    // 找到符合的卡片（副品名用來從搜尋結果中鎖定正確的那張）
-    const card = findMatchingCard(item.igoName, item.igoSubName);
+    // 搜尋 + 比對卡片（含一次重試：第一次落空就拉長等待時間再試一次，
+    // 因應連續自動化搜尋時網站篩選反應變慢的狀況）
+    let card = null;
+    for (let attempt = 0; attempt < 2 && !card; attempt++) {
+      fill(searchInput, "");
+      await sleep(200);
+      fill(searchInput, item.igoName); // 只用主品名搜尋
+      searchInput.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(attempt === 0 ? 800 : 1800); // 等 Shuffle.js 過濾，重試時等更久
+      card = findMatchingCard(item.igoName, item.igoSubName);
+    }
     if (!card) {
       addSkipped(item.name, "找不到品項卡片");
       await sleep(400);
@@ -180,9 +183,15 @@
     }
 
     // 點卡片的加入按鈕（Bootstrap modal trigger）
-    const trigger = card.querySelector("[data-bs-toggle='modal']")
-                 || card.querySelector("a[href*='cart']")
-                 || card.querySelector(".btn:not(.disabled)");
+    // 找不到就等一下再重找一次，避免卡片本體已出現、但內部按鈕還沒渲染完
+    const findTrigger = () => card.querySelector("[data-bs-toggle='modal']")
+                            || card.querySelector("a[href*='cart']")
+                            || card.querySelector(".btn:not(.disabled)");
+    let trigger = findTrigger();
+    if (!trigger) {
+      await sleep(1000);
+      trigger = findTrigger();
+    }
     if (!trigger) {
       addSkipped(item.name, "找不到加入按鈕");
       await sleep(400);
@@ -395,8 +404,10 @@
       if (text.includes(igoName)) return card;
     }
 
-    // 搜尋後只剩一張卡片 → 直接取
-    if (candidates.length === 1) return candidates[0];
+    // 搜尋後只剩一張卡片 → 直接取，但要先確認它「長得像商品卡片」
+    // （有圖片），避免誤把「查無相關商品」的提示區塊當成卡片，
+    // 導致明明搜尋落空，卻硬選一個沒有加入按鈕的東西
+    if (candidates.length === 1 && candidates[0].querySelector("img")) return candidates[0];
 
     return null;
   }
