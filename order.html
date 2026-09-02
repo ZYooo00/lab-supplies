@@ -42,6 +42,12 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
 /* ── Main ── */
 .main { max-width: 960px; margin: 0 auto; padding: 24px 24px 60px; }
 
+/* ── Room block（胚胎室／精蟲室／其他 三張單）── */
+.room-block { margin-bottom: 32px; }
+.room-hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.room-title { font-size: 18px; font-weight: 800; }
+.room-count { font-size: 12px; color: #888; }
+
 /* ── Section ── */
 .section { background: #fff; border-radius: 14px; margin-bottom: 20px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .sec-hdr {
@@ -179,34 +185,9 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
 </div>
 
 <div class="main" id="mainContent" style="display:none">
+  <div id="roomsContainer"></div>
 
-  <!-- iGo Section -->
-  <div class="section" id="secIgo" style="display:none">
-    <div class="sec-hdr">
-      <span class="sec-icon">🛒</span>
-      <span class="sec-title">iGo 訂購</span>
-      <span class="sec-count" id="igoCount"></span>
-    </div>
-    <table class="igo-table">
-      <thead>
-        <tr>
-          <th style="width:28%">品項</th>
-          <th style="width:22%">iGo 搜尋名稱</th>
-          <th class="num" style="width:16%">基準量 / 安全量</th>
-          <th class="num" style="width:11%">現有量</th>
-          <th class="num" style="width:13%">預計訂購量</th>
-          <th class="num" style="width:10%">訂購量</th>
-        </tr>
-      </thead>
-      <tbody id="igoBody"></tbody>
-    </table>
-    <div class="igo-footer">
-      <span class="hint">可手動調整訂購量後再送出</span>
-      <button class="btn-send-igo" id="btnSendIgo" onclick="sendToIgo()">送出 iGo 訂單</button>
-    </div>
-  </div>
-
-  <!-- LINE 分生室 -->
+  <!-- LINE／Linkin 是既有的聯絡管道，不依房間拆分，各自一區放在三張 iGo 單之後 -->
   <div class="section" id="secLine1" style="display:none">
     <div class="sec-hdr">
       <span class="sec-icon">💬</span>
@@ -217,7 +198,6 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
     <button class="btn-copy-all" id="btnCopyLine1" onclick="copyLineAll('line1')">複製全部訊息</button>
   </div>
 
-  <!-- LINE 艾捷隆 -->
   <div class="section" id="secLine2" style="display:none">
     <div class="sec-hdr">
       <span class="sec-icon">💬</span>
@@ -228,7 +208,6 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
     <button class="btn-copy-all" id="btnCopyLine2" onclick="copyLineAll('line2')">複製全部訊息</button>
   </div>
 
-  <!-- Linkin -->
   <div class="section" id="secLinkin" style="display:none">
     <div class="sec-hdr">
       <span class="sec-icon">⚠️</span>
@@ -237,7 +216,6 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
     </div>
     <div class="linkin-list" id="linkinBody"></div>
   </div>
-
 </div>
 
 <!-- Loading Overlay -->
@@ -264,10 +242,11 @@ function fmtCountDate(raw, countBy) {
 }
 
 let orderData = null;      // 完整 API 回傳
-let igoItems  = [];
-let line1Items = [];
-let line2Items = [];
-let linkinItems = [];
+const ROOM_ORDER = ['胚胎室', '精蟲室', '其他'];
+const ROOM_SLUG  = { '胚胎室': 'embryo', '精蟲室': 'sperm', '其他': 'other' };
+const ROOM_ICON  = { '胚胎室': '🧫', '精蟲室': '🧬', '其他': '📦' };
+let roomData = {}; // slug -> { igo:[], line1:[], line2:[], linkin:[] }
+function roomOf(it) { return it.room || '其他'; }
 
 // ── 載入訂購清單 ──────────────────────────────────────────────
 async function loadOrder() {
@@ -288,7 +267,7 @@ async function loadOrder() {
 async function load2wOrder() {
   showLoading("載入兩週盤點訂單…");
   try {
-    const res  = await fetch(`${GAS_URL}?action=pending-order&_t=${Date.now()}`);
+    const res  = await fetch(`${GAS_URL}?action=get-2w-draft&_t=${Date.now()}`);
     const data = await res.json();
     if (!data.items?.length) { showError("找不到兩週盤點訂單，請重新從 count.html 提交"); return; }
     const items = data.items.map(it => ({
@@ -303,33 +282,90 @@ async function load2wOrder() {
 }
 
 // ── 分類 & 渲染 ───────────────────────────────────────────────
+// iGo 依 room 拆成胚胎室／精蟲室／其他 三張單（送去不同部門的領料單）；
+// LINE／Linkin 是既有的聯絡管道，跟房間無關，不拆、各自一區放在最下面。
 function renderAll(data) {
   document.getElementById("countDate").textContent = fmtCountDate(data.date, data.countBy);
+  cleanupOldSentLocks(data.date);
 
   const items = data.items || [];
-  igoItems    = items.filter(it => it.channel === "iGo");
-  line1Items  = items.filter(it => it.channel === "LINE分生室");
-  line2Items  = items.filter(it => it.channel === "LINE艾捷隆");
-  linkinItems = items.filter(it => it.channel === "linkin");
+  const container = document.getElementById('roomsContainer');
+  container.innerHTML = ROOM_ORDER.map(roomBlockHTML).join('');
 
-  renderIgo();
-  renderLine("line1", line1Items, "LINE分生室");
-  renderLine("line2", line2Items, "LINE艾捷隆");
-  renderLinkin();
+  ROOM_ORDER.forEach(room => {
+    renderIgo(room, items.filter(it => it.channel === "iGo" && roomOf(it) === room));
+    updateRoomVisibility(room);
+  });
+
+  renderLine("line1", items.filter(it => it.channel === "LINE分生室"));
+  renderLine("line2", items.filter(it => it.channel === "LINE艾捷隆"));
+  renderLinkin(items.filter(it => it.channel === "linkin"));
 
   document.getElementById("mainContent").style.display = "";
 }
 
-// ── iGo ──────────────────────────────────────────────────────
-function renderIgo() {
-  const sec = document.getElementById("secIgo");
-  if (!igoItems.length) { sec.style.display = "none"; return; }
-  sec.style.display = "";
-  document.getElementById("igoCount").textContent = `共 ${igoItems.length} 項`;
+function roomBlockHTML(room) {
+  const slug = ROOM_SLUG[room];
+  return `
+  <div class="room-block" id="room-${slug}">
+    <div class="room-hdr">
+      <span style="font-size:20px">${ROOM_ICON[room]}</span>
+      <span class="room-title">${room}</span>
+      <span class="room-count" id="roomCount-${slug}"></span>
+    </div>
 
-  const tbody = document.getElementById("igoBody");
-  tbody.innerHTML = igoItems.map(it => {
+    <div class="section" id="secIgo-${slug}" style="display:none">
+      <div class="sec-hdr">
+        <span class="sec-icon">🛒</span>
+        <span class="sec-title">iGo 訂購</span>
+        <span class="sec-count" id="igoCount-${slug}"></span>
+      </div>
+      <table class="igo-table">
+        <thead>
+          <tr>
+            <th style="width:28%">品項</th>
+            <th style="width:22%">iGo 搜尋名稱</th>
+            <th class="num" style="width:16%">基準量 / 安全量</th>
+            <th class="num" style="width:11%">現有量</th>
+            <th class="num" style="width:13%">預計訂購量</th>
+            <th class="num" style="width:10%">訂購量</th>
+          </tr>
+        </thead>
+        <tbody id="igoBody-${slug}"></tbody>
+      </table>
+      <div class="igo-footer">
+        <span class="hint">可手動調整訂購量後再送出</span>
+        <button class="btn-send-igo" id="btnSendIgo-${slug}" onclick="sendToIgo('${room}')">送出 iGo 訂單</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function updateRoomVisibility(room) {
+  const slug = ROOM_SLUG[room];
+  const d = roomData[slug] || {};
+  const total = d.igo?.length || 0;
+  const block = document.getElementById('room-' + slug);
+  if (!total) { block.style.display = 'none'; return; }
+  block.style.display = '';
+  document.getElementById('roomCount-' + slug).textContent = `共 ${total} 項`;
+}
+
+// ── iGo ──────────────────────────────────────────────────────
+function renderIgo(room, items) {
+  const slug = ROOM_SLUG[room];
+  roomData[slug] = roomData[slug] || {};
+  roomData[slug].igo = items;
+  const sec = document.getElementById("secIgo-" + slug);
+  if (!items.length) { sec.style.display = "none"; return; }
+  sec.style.display = "";
+  document.getElementById("igoCount-" + slug).textContent = `共 ${items.length} 項`;
+
+  const tbody = document.getElementById("igoBody-" + slug);
+  tbody.innerHTML = items.map(it => {
     const warnTag = it.warning ? `<span class="warn-tag">⚠️ 低庫存</span>` : "";
+    const crossTag = it.crossRoomOther
+      ? `<span class="warn-tag" style="background:#e6f0ff;color:#1a4e8a">↔ ${it.crossRoomOther}也有存放</span>` : "";
     const currentStr = it.rawCurrent !== null && it.rawCurrent !== undefined
       ? `${it.rawCurrent}<span class="unit-label">${it.bulkUnit}</span>`
       : it.current !== null ? `${it.current}<span class="unit-label">${it.unit}</span>` : "—";
@@ -344,7 +380,7 @@ function renderIgo() {
       : baselineStr;
     return `<tr>
       <td>
-        <div class="item-name">${it.name}${warnTag}</div>
+        <div class="item-name">${it.name}${warnTag}${crossTag}</div>
         ${it.note ? `<div class="item-igo" style="color:#f80">${it.note}</div>` : ""}
       </td>
       <td><div class="item-igo" style="font-size:12px;color:#555">${it.igoName || it.name}</div></td>
@@ -352,19 +388,24 @@ function renderIgo() {
       <td class="current-cell">${currentStr}</td>
       <td class="current-cell" style="color:#aaa">${it.suggested > 0 ? it.suggested + `<span class="unit-label">${it.unit}</span>` : "—"}</td>
       <td>
-        <input class="qty-input" type="number" min="0" id="qty-${it.id}"
-          value="${it.suggested}" oninput="onQtyChange('${it.id}', ${it.suggested}, this)">
+        <input class="qty-input" type="number" min="0" id="qty-${slug}-${it.id}"
+          value="${it.suggested}" oninput="onQtyChange('${slug}-${it.id}', ${it.suggested}, this)">
       </td>
     </tr>`;
   }).join("");
+
+  applySentLockUI(room);
 }
 
 function onQtyChange(id, original, el) {
   el.classList.toggle("changed", Number(el.value) !== original);
 }
 
-// ── LINE ──────────────────────────────────────────────────────
-function renderLine(key, items, target) {
+// ── LINE（不分房間，既有的聯絡管道清單）───────────────────────
+let channelData = { line1: [], line2: [], linkin: [] };
+
+function renderLine(key, items) {
+  channelData[key] = items;
   const sec   = document.getElementById("sec" + key.charAt(0).toUpperCase() + key.slice(1));
   const body  = document.getElementById(key + "Body");
   const count = document.getElementById(key + "Count");
@@ -382,13 +423,14 @@ function renderLine(key, items, target) {
 }
 
 // ── Linkin ────────────────────────────────────────────────────
-function renderLinkin() {
+function renderLinkin(items) {
+  channelData.linkin = items;
   const sec = document.getElementById("secLinkin");
-  if (!linkinItems.length) { sec.style.display = "none"; return; }
+  if (!items.length) { sec.style.display = "none"; return; }
   sec.style.display = "";
-  document.getElementById("linkinCount").textContent = `共 ${linkinItems.length} 項`;
+  document.getElementById("linkinCount").textContent = `共 ${items.length} 項`;
 
-  document.getElementById("linkinBody").innerHTML = linkinItems.map(it => `
+  document.getElementById("linkinBody").innerHTML = items.map(it => `
     <div class="linkin-item">
       <span class="linkin-icon">⚠️</span>
       <div style="flex:1">
@@ -400,18 +442,37 @@ function renderLinkin() {
   `).join("");
 }
 
-// ── 送出 iGo ─────────────────────────────────────────────────
-async function sendToIgo() {
-  const btn = document.getElementById("btnSendIgo");
-  const payload = igoItems.map(it => {
-    const el = document.getElementById("qty-" + it.id);
+// ── 送出 iGo（依 room 分開送，PENDING_ORDER 一次只能存一份，需依序送出）──
+async function sendToIgo(room) {
+  const slug = ROOM_SLUG[room];
+  const items = (roomData[slug] && roomData[slug].igo) || [];
+  const payload = items.map(it => {
+    const el = document.getElementById(`qty-${slug}-${it.id}`);
     const qty = el ? Number(el.value) : it.suggested;
     return { id: it.id, name: it.name, igoName: it.igoName || it.name, igoSubName: it.igoSubName || "", qty, unit: it.unit };
   }).filter(it => it.qty > 0);
 
   if (!payload.length) { toast("沒有需要送出的品項"); return; }
 
-  // session_id 用時間戳記，避免多人同時操作時抓錯訂單
+  // 覆寫防呆：先檢查 PENDING_ORDER 是否還有上一張單尚未被 Tampermonkey 取走
+  let pending = null;
+  try {
+    const r = await fetch(`${GAS_URL}?action=pending-order&_t=${Date.now()}`);
+    pending = await r.json();
+  } catch (e) { /* 檢查失敗就不擋，直接嘗試送出 */ }
+
+  if (pending && pending.items && pending.items.length) {
+    showOverwriteGuardModal(room, payload);
+    return;
+  }
+
+  await doSendToIgo(room, payload);
+}
+
+async function doSendToIgo(room, payload) {
+  const slug = ROOM_SLUG[room];
+  const btn  = document.getElementById("btnSendIgo-" + slug);
+  // session_id 用時間戳記，Tampermonkey 用來比對清單有沒有被新訂單覆寫
   const sessionId = "igo_" + Date.now();
 
   btn.disabled = true;
@@ -423,25 +484,65 @@ async function sendToIgo() {
         action: "pending-order",
         sessionId,
         items: payload,
-        date: orderData?.date || ""
+        date: orderData?.date || "",
+        room: room
       })
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.error);
-    // 把 sessionId 存到 localStorage，Tampermonkey 開啟 iGo 後用同一個 sessionId 來取單
     localStorage.setItem("igo_session_id", sessionId);
-    btn.textContent = "✅ 已存入，正在開啟 iGo…";
+    markRoomSent(room);
     toast(`已存入 ${payload.length} 項，即將開啟 iGo`);
     setTimeout(() => {
       window.open("https://tp-igo.e-stork.com.tw/login", "_blank");
-      btn.disabled = false;
-      btn.textContent = "送出 iGo 訂單";
     }, 1200);
   } catch (e) {
     toast("送出失敗：" + e.message);
     btn.disabled = false;
     btn.textContent = "送出 iGo 訂單";
   }
+}
+
+function showOverwriteGuardModal(room, payload) {
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center";
+  ov.innerHTML = `<div style="background:#fff;border-radius:16px;padding:24px;max-width:340px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <div style="font-size:15px;font-weight:700;margin-bottom:8px;color:#1a1a1a">⚠️ 上一張單尚未處理</div>
+    <div style="font-size:13px;color:#666;margin-bottom:20px;line-height:1.7">iGo 待送清單裡還有上一張訂單的品項，請先完成該筆 Tampermonkey 流程（或到 iGo 分頁把它結帳／清空）再送出這張單。</div>
+    <div style="display:flex;gap:10px">
+      <button id="_ogClose" style="flex:1;padding:10px;border:1.5px solid #ddd;border-radius:9px;background:#fff;color:#555;font-size:13px;font-weight:600;cursor:pointer">我知道了</button>
+      <button id="_ogForce" style="padding:10px 14px;border:none;border-radius:9px;background:#f0f0f0;color:#999;font-size:12px;cursor:pointer">強制清空並覆寫</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector("#_ogClose").onclick = () => ov.remove();
+  ov.querySelector("#_ogForce").onclick = async () => {
+    ov.remove();
+    try { await fetch(GAS_URL, { method: "POST", body: JSON.stringify({ action: "clear-pending-order" }) }); } catch (e) {}
+    await doSendToIgo(room, payload);
+  };
+  ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
+}
+
+// ── 送出狀態鎖定（依 date + room 記在 localStorage，避免搞混哪張單送過了）──
+function markRoomSent(room) {
+  localStorage.setItem(`igo_sent_${orderData?.date || ""}_${room}`, "true");
+  applySentLockUI(room);
+}
+function applySentLockUI(room) {
+  const slug = ROOM_SLUG[room];
+  const btn = document.getElementById("btnSendIgo-" + slug);
+  if (!btn) return;
+  const sent = localStorage.getItem(`igo_sent_${orderData?.date || ""}_${room}`) === "true";
+  btn.textContent = sent ? "✅ 已送出" : "送出 iGo 訂單";
+  btn.disabled = sent;
+}
+function cleanupOldSentLocks(currentDate) {
+  const prefix = "igo_sent_";
+  const keep = prefix + (currentDate || "") + "_";
+  Object.keys(localStorage).forEach(k => {
+    if (k.indexOf(prefix) === 0 && k.indexOf(keep) !== 0) localStorage.removeItem(k);
+  });
 }
 
 // ── 複製 LINE 訊息 ─────────────────────────────────────────────
@@ -455,12 +556,8 @@ function copyOne(btnEl, name, qty, unit) {
 }
 
 function copyLineAll(key) {
-  const items = key === "line1" ? line1Items : line2Items;
-  const text = items.map(it => {
-    const el = document.getElementById("qty-" + it.id);
-    const qty = el ? Number(el.value) : it.suggested;
-    return `${it.name} x${qty}${it.unit}`;
-  }).join("\n");
+  const items = channelData[key] || [];
+  const text = items.map(it => `${it.name} x${it.suggested}${it.unit}`).join("\n");
   const btn = document.getElementById("btnCopy" + key.charAt(0).toUpperCase() + key.slice(1));
   navigator.clipboard.writeText(text).then(() => {
     btn.textContent = "✅ 已複製";
