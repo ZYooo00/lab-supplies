@@ -72,42 +72,13 @@ body {
 }
 .zone-chip:active { background: #e8e8ea; }
 
-/*
-  捲動架構：
-  .scroll-outer  → 真正的捲軸容器（overflow-y: scroll）
-    .vp-window   → sticky 視窗，固定在頂部，column-count:2，overflow:hidden
-      .flow      → 所有品項在這裡，marginTop 跟著 scrollTop 往上移
-    .spacer      → 提供足夠的捲軸高度（JS 計算後寫入）
-*/
-.scroll-outer {
+/* 單純上下捲動的清單容器（原生捲動，無 JS 分頁特效） */
+.list-outer {
   flex: 1;
-  overflow-y: scroll;
+  overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  position: relative;
-  scroll-snap-type: y mandatory; /* 強制每次停在卡片頂部 */
-}
-/* 隱形磁吸點，由 JS 在每張卡片對應的 scrollTop 位置注入 */
-.snap-pt {
-  position: absolute; left: 0; width: 1px; height: 1px;
-  scroll-snap-align: start;
-  scroll-snap-stop: always; /* 強制每次只能停在下一格，不能跳過 */
-  pointer-events: none;
-}
-
-.vp-window {
-  position: sticky;
-  top: 0;
-  /* height 由 JS 寫入 */
-  overflow: hidden;
-  column-count: 2;
-  column-gap: 16px;
-  padding: 16px 16px 16px 16px;
-  background: #f5f5f7;
-}
-
-.flow {
-  /* marginTop 由 JS 跟著 scrollTop 更新 */
+  padding: 16px;
 }
 
 .zone-section { margin-bottom: 20px; }
@@ -115,7 +86,15 @@ body {
   font-size: 15px; font-weight: 700; color: #555;
   letter-spacing: 0.5px; border-bottom: 2px solid #ddd; padding-bottom: 6px;
   margin-bottom: 10px;
-  break-inside: avoid;
+}
+/* 兩欄表格：同一列左右各一項，非左欄跑完才換右欄 */
+.items-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 768px) {
+  .items-grid { grid-template-columns: 1fr; }
 }
 
 .item-row {
@@ -124,8 +103,6 @@ body {
   padding: 10px 14px; background: #fff; border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0,0,0,.06);
   border: 1.5px solid transparent;
-  margin-bottom: 10px;
-  break-inside: avoid;
 }
 .item-row.partial { border-color: #ff9500; background: #fffbf0; }
 .item-row.done    { opacity: 0.55; border-color: #34c759; background: #f8fff8; }
@@ -206,12 +183,8 @@ body {
   <div class="zone-chips" id="zoneChips"></div>
 </div>
 
-<div class="scroll-outer" id="scrollOuter">
-  <div class="vp-window" id="vpWindow">
-    <div class="flow" id="flow"></div>
-  </div>
-  <!-- 這個 spacer 讓捲軸有足夠的滾動空間（高度由 JS 計算） -->
-  <div id="spacer" style="width:1px;"></div>
+<div class="list-outer" id="listOuter">
+  <div class="flow" id="flow"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -219,19 +192,8 @@ body {
 <script>
 const GAS_URL = "https://script.google.com/macros/s/AKfycbwdoAng6aOcufhV9E_OmrBTDbOV28R_1HMsIg3WKyocHWew0o5LYCX6fQdaJs5kDGXj/exec";
 let receiptData = null;
-let zonePositions = {}; // 記錄每個 zone 在單欄 flow 中的實際位置，用於正確導覽
 
-const scrollOuter = () => document.getElementById("scrollOuter");
-const vpWindow    = () => document.getElementById("vpWindow");
-const flowEl      = () => document.getElementById("flow");
-const spacerEl    = () => document.getElementById("spacer");
-
-window.addEventListener("resize", initLayout);
-
-/* 捲軸事件：把內容往上拉 */
-document.getElementById("scrollOuter").addEventListener("scroll", function() {
-  flowEl().style.marginTop = `-${this.scrollTop}px`;
-});
+const flowEl = () => document.getElementById("flow");
 
 async function loadReceipt() {
   flowEl().innerHTML = `<div class="empty-state">載入中…</div>`;
@@ -253,65 +215,9 @@ function fmtReceiptDate(raw) {
 }
 
 function scrollToZone(zone) {
-  const pos = zonePositions[zone];
-  if (pos == null) return;
-  scrollOuter().scrollTo({ top: pos, behavior: "smooth" });
-}
-
-/* 計算捲軸空間：
-   把視窗暫時展開成單欄量出總高度，再算回兩欄需要多少捲動範圍 */
-function initLayout() {
-  const outer  = scrollOuter();
-  const vp     = vpWindow();
-  const flow   = flowEl();
-  const spacer = spacerEl();
-
-  const vpH = outer.clientHeight;
-
-  /* 先暫時單欄、自由高度，量出所有內容展開後的總高度 + 各 zone 位置 */
-  vp.style.height      = "auto";
-  vp.style.columnCount = "1";
-  vp.style.overflow    = "visible";
-  const singleColH = flow.scrollHeight;
-
-  /* 趁單欄時記下每個 zone 的真實位置（供 scrollToZone 使用） */
-  zonePositions = {};
-  document.querySelectorAll(".zone-section[id^='zone-']").forEach(el => {
-    const zone = el.id.replace("zone-", "");
-    zonePositions[zone] = el.offsetTop;
-  });
-
-  /* 同時收集所有卡片位置，供磁吸點使用 */
-  const itemTops = [0]; // 起始位置也是磁吸點
-  document.querySelectorAll(".item-row").forEach(el => {
-    itemTops.push(el.offsetTop);
-  });
-
-  /* 恢復雙欄視窗 */
-  vp.style.height      = vpH + "px";
-  vp.style.columnCount = "2";
-  vp.style.overflow    = "hidden";
-
-  const contentArea = vpH - 32;
-  const scrollRange = Math.max(0, singleColH - contentArea * 2);
-  spacer.style.height = scrollRange + "px";
-
-  /* 清除舊磁吸點，注入新的（位置 = 各卡片在 scrollOuter 的 scrollTop） */
-  outer.querySelectorAll(".snap-pt").forEach(e => e.remove());
-  const seen = new Set();
-  itemTops.forEach(pos => {
-    const snapped = Math.min(Math.round(pos), scrollRange);
-    if (seen.has(snapped)) return;
-    seen.add(snapped);
-    const pt = document.createElement("div");
-    pt.className = "snap-pt";
-    pt.style.top = snapped + "px";
-    outer.appendChild(pt);
-  });
-
-  /* 重設捲動位置（避免 resize 後內容錯位） */
-  const cur = outer.scrollTop;
-  flow.style.marginTop = `-${cur}px`;
+  const el = document.getElementById("zone-" + zone);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderAll() {
@@ -331,7 +237,6 @@ function renderAll() {
   const filtered = q ? allItems.filter(it => it.name.toLowerCase().includes(q)) : allItems;
   if (!filtered.length) {
     flowEl().innerHTML = `<div class="empty-state">找不到「${q}」</div>`;
-    spacerEl().style.height = "0px";
     return;
   }
 
@@ -352,7 +257,7 @@ function renderAll() {
     const rows = groups[zone].map(it => buildRow(it)).join("");
     return `<div class="zone-section" id="zone-${zone}">
       <div class="zone-title">${zone}</div>
-      ${rows}
+      <div class="items-grid">${rows}</div>
     </div>`;
   }).join("");
 
@@ -366,9 +271,6 @@ function renderAll() {
   } else {
     chipsEl.innerHTML = "";
   }
-
-  /* DOM 畫完後計算捲軸空間 */
-  requestAnimationFrame(initLayout);
 }
 
 /* 區域排序：鐵架 → 鐵櫃 → 架子 → 精蟲(A-E) → 其他 */
