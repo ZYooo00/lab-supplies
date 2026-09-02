@@ -452,18 +452,34 @@
     return new Promise(r => setTimeout(r, ms));
   }
 
-  function fetchGAS(action) {
+  function fetchGASOnce(action) {
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
-        method: "GET",
-        url:    `${GAS_URL}?action=${action}`,
-        onload: (res) => {
+        method:  "GET",
+        // 加時間戳記避免任何中間層／瀏覽器快取吃到舊回應
+        url:     `${GAS_URL}?action=${action}&_t=${Date.now()}`,
+        timeout: 10000,
+        onload:  (res) => {
           try { resolve(JSON.parse(res.responseText)); }
           catch (e) { reject(new Error("JSON parse error: " + res.responseText.slice(0, 100))); }
         },
-        onerror: (e) => reject(new Error("網路錯誤")),
+        onerror:   (e) => reject(new Error("網路錯誤")),
+        ontimeout: (e) => reject(new Error("連線逾時")),
       });
     });
+  }
+
+  // GAS 偶爾會因為忙碌／流量攔截回傳 HTML 而不是 JSON，先重試一次，
+  // 兩次都失敗才拋出白話錯誤，不把整段 HTML 原始碼丟給使用者看
+  async function fetchGAS(action) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await fetchGASOnce(action);
+      } catch (e) {
+        if (attempt === 0) { await sleep(1500); continue; }
+        throw new Error("GAS 伺服器暫時忙碌或網路不穩，請稍後重新整理頁面再試一次");
+      }
+    }
   }
 
   function clearGasPendingOrder() {
