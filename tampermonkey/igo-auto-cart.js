@@ -58,11 +58,12 @@
         showBanner("⚠️ 待送清單是空的，請先從 order.html 送出訂單", "orange");
         return;
       }
-      GM_setValue("igo_order",   JSON.stringify(order));
-      GM_setValue("igo_index",   0);
-      GM_setValue("igo_filling", true);
-      GM_setValue("igo_skipped", "[]");
-      GM_setValue("igo_receipt", "[]");
+      GM_setValue("igo_order",      JSON.stringify(order));
+      GM_setValue("igo_session_id", order.sessionId || "");
+      GM_setValue("igo_index",      0);
+      GM_setValue("igo_filling",    true);
+      GM_setValue("igo_skipped",    "[]");
+      GM_setValue("igo_receipt",    "[]");
       showBanner(`✅ 待送清單已載入（共 ${order.items.length} 項），請輸入帳號密碼登入`, "green");
       log(`取得 ${order.items.length} 項，等待使用者登入`);
     } catch (e) {
@@ -89,11 +90,12 @@
       try {
         const order = await fetchGAS("pending-order");
         if (!order.items || !order.items.length) return; // 沒有待送清單，不干預
-        GM_setValue("igo_order",   JSON.stringify(order));
-        GM_setValue("igo_index",   0);
-        GM_setValue("igo_filling", true);
-        GM_setValue("igo_skipped", "[]");
-        GM_setValue("igo_receipt", "[]");
+        GM_setValue("igo_order",      JSON.stringify(order));
+        GM_setValue("igo_session_id", order.sessionId || "");
+        GM_setValue("igo_index",      0);
+        GM_setValue("igo_filling",    true);
+        GM_setValue("igo_skipped",    "[]");
+        GM_setValue("igo_receipt",    "[]");
         showBanner(`✅ 待送清單已載入（共 ${order.items.length} 項），開始自動加購…`, "green");
       } catch (e) {
         return; // 無法連到 GAS，不干預
@@ -116,6 +118,7 @@
         });
       }
       GM_deleteValue("igo_receipt");
+      GM_deleteValue("igo_session_id");
       // 前往領料車確認頁
       GM_setValue("igo_filling",   false);
       GM_setValue("igo_completed", true);
@@ -124,6 +127,23 @@
       await sleep(1500);
       location.href = "/staff/cart/show";
       return;
+    }
+
+    // 殭屍分頁防護：每處理 5 項重新比對一次 GAS 上目前的 sessionId
+    // （不用每項都查，避免額外的網路延遲影響 iGo 網頁自己的搜尋節奏）
+    // 如果跟自己手上這份不一致，代表清單已經被「強制清空並覆寫」取代，中止流程
+    if (idx % 5 === 0) {
+      const mySessionId = GM_getValue("igo_session_id", "");
+      try {
+        const liveOrder = await fetchGAS("pending-order");
+        if (mySessionId && liveOrder.sessionId && liveOrder.sessionId !== mySessionId) {
+          GM_setValue("igo_filling", false);
+          showBanner("⚠️ 這份清單已被新訂單取代，請重新整理頁面", "red");
+          return;
+        }
+      } catch (e) {
+        // 檢查失敗（網路問題）不中止，避免誤判卡住整個流程
+      }
     }
 
     const item = items[idx];
@@ -272,6 +292,23 @@
       }
     } catch (e) {
       log("部門自動填寫失敗：" + e.message);
+    }
+
+    // 自動填「請領備註」：標示這張單是懷九-胚胎室／懷九-精蟲室／懷九-其他
+    try {
+      const order = JSON.parse(GM_getValue("igo_order", "{}"));
+      if (order.room) {
+        const noteEl = document.querySelector('textarea[placeholder*="請領備註"]')
+                    || document.querySelector('textarea[placeholder*="備註"]');
+        if (noteEl) {
+          fill(noteEl, "懷九-" + order.room);
+          log("已填入請領備註：懷九-" + order.room);
+        } else {
+          log("找不到請領備註欄位，略過自動填寫");
+        }
+      }
+    } catch (e) {
+      log("填寫請領備註失敗：" + e.message);
     }
 
     // 顯示摘要報告
