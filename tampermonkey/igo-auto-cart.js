@@ -182,11 +182,15 @@
       return;
     }
 
-    // 點卡片的加入按鈕（Bootstrap modal trigger）
-    // 找不到就等一下再重找一次，避免卡片本體已出現、但內部按鈕還沒渲染完
+    // 點卡片觸發「加入領料車」視窗。實測整張卡片（含圖片）都可以點開，
+    // 不是靠特定按鈕，所以優先找卡片裡可點的視覺區塊，不用死守特定 class/屬性；
+    // 找不到就等一下再重找一次，避免卡片本體已出現、但內容還沒渲染完
     const findTrigger = () => card.querySelector("[data-bs-toggle='modal']")
                             || card.querySelector("a[href*='cart']")
-                            || card.querySelector(".btn:not(.disabled)");
+                            || card.querySelector(".btn:not(.disabled)")
+                            || card.querySelector(".card")   // 卡片本體（點圖片/整張卡都能開視窗）
+                            || card.querySelector("img")     // 商品圖片
+                            || card;                          // 最後手段：整個卡片容器
     let trigger = findTrigger();
     if (!trigger) {
       await sleep(1000);
