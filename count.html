@@ -167,6 +167,7 @@ body {
   <input type="date" id="datePicker">
   <label>盤點人</label>
   <select id="personPicker">
+    <option value="" selected>盤點人</option>
     <option>Yvette</option><option>Xuan</option><option>Corrine</option>
     <option>Wilson</option><option>Gordon</option><option>Tini</option>
     <option>Irene</option><option>Windy</option><option>Linda</option>
@@ -175,7 +176,7 @@ body {
     <option>Linkin</option><option>Sunny</option><option>Ally</option>
   </select>
   <select id="personPicker2">
-    <option value="">（無）</option>
+    <option value="" selected>盤點人</option>
     <option>Yvette</option><option>Xuan</option><option>Corrine</option>
     <option>Wilson</option><option>Gordon</option><option>Tini</option>
     <option>Irene</option><option>Windy</option><option>Linda</option>
@@ -456,11 +457,13 @@ let npActiveId = null, mode = '4w';
 let pendingSyncQueue = {}; // {id: value}，累積後批次送出
 let syncTimer = null;
 
-// 組合「盤點人」欄位：最多兩位，兩個都選了就合併成 "A、B"
+// 組合「盤點人」欄位：最多兩位，兩個都選了就合併成 "A、B"；
+// 兩個下拉選單預設都是空值（顯示「盤點人」佔位字樣，尚未選人），
+// 沒選的欄位不計入組合結果。
 function getCountBy() {
   const p1 = document.getElementById("personPicker").value;
   const p2 = document.getElementById("personPicker2").value;
-  return p2 ? `${p1}、${p2}` : p1;
+  return [p1, p2].filter(Boolean).join("、");
 }
 
 // ── 即時同步：收集器 + 批次送出（1.8 秒收集一次，降低 GAS 併發負擔）──
