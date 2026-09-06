@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.11
+// @version      0.12
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -452,20 +452,13 @@
     const el = typeof selectorOrEl === "string"
       ? document.querySelector(selectorOrEl) : selectorOrEl;
     if (!el) { log("找不到元素：" + selectorOrEl); return; }
-    el.focus();
     const setter = Object.getOwnPropertyDescriptor(
       el.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, "value"
     )?.set;
     if (setter) setter.call(el, value);
     else el.value = value;
-    // 補齊一整套模擬打字事件，避免嚴格的前端框架只認真實鍵盤事件、
-    // 沒收到就不更新內部狀態（送出時數量被當成 0）
-    el.dispatchEvent(new KeyboardEvent("keydown",  { bubbles: true }));
-    el.dispatchEvent(new KeyboardEvent("keypress", { bubbles: true }));
     el.dispatchEvent(new Event("input",  { bubbles: true }));
-    el.dispatchEvent(new KeyboardEvent("keyup", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
-    el.blur();
   }
 
   function click(selector) {
