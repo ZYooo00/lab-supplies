@@ -528,15 +528,22 @@ async function manualSync() {
     const date = toSD(document.getElementById("datePicker").value);
     const r = await fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(date)}&_t=${Date.now()}`);
     const d = await r.json();
-    if (mode !== "2w") {
-      counts = {};
-      if (d.counts) for (const [k, v] of Object.entries(d.counts)) counts[k] = String(v);
-      saveLocal();
+    // 只有伺服器明確回報成功、且回傳的日期真的等於畫面要求的日期，才敢覆蓋畫面；
+    // 失敗或日期對不上時保留畫面現有資料不動，寧可同步不成功，也不要洗掉已經填好的東西。
+    if (d.ok && d.date === date) {
+      if (mode !== "2w") {
+        counts = {};
+        if (d.counts) for (const [k, v] of Object.entries(d.counts)) counts[k] = String(v);
+        saveLocal();
+      }
+      refreshAll();
+      if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
+      setSyncStatus("已同步", "#34c759");
+      showToastMsg("✅ 已同步最新資料");
+    } else {
+      setSyncStatus("⚠️ 同步失敗", "#ff9500");
+      showToastMsg("⚠️ 同步查詢失敗，已保留畫面上現有資料");
     }
-    refreshAll();
-    if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
-    setSyncStatus("已同步", "#34c759");
-    showToastMsg("✅ 已同步最新資料");
   } catch (e) {
     setSyncStatus("⚠️ 同步失敗", "#ff9500");
     showToastMsg("同步失敗：" + e.message);
@@ -544,6 +551,28 @@ async function manualSync() {
     btn.disabled = false;
   }
 }
+
+// iPad 背景關閉防護：iOS Safari 把分頁切到背景或關閉時會凍結 JS 計時器，
+// 最後一批 pendingSyncQueue 可能來不及靠原本的 1.8 秒計時器送出。用
+// sendBeacon（背景/卸載階段瀏覽器保證送出，一般 fetch 不保證）強制補送。
+function flushSyncQueueBeacon() {
+  const ids = Object.keys(pendingSyncQueue);
+  if (!ids.length) return;
+  const date = toSD(document.getElementById("datePicker").value);
+  const countBy = getCountBy();
+  const items = ids.map(id => ({ id, value: pendingSyncQueue[id] }));
+  pendingSyncQueue = {};
+  const body = JSON.stringify({ action: "save-item-counts", date, countBy, items });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(GAS_URL, new Blob([body], { type: "text/plain" }));
+  } else {
+    fetch(GAS_URL, { method: "POST", headers: { "Content-Type": "text/plain" }, body, keepalive: true }).catch(() => {});
+  }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) flushSyncQueueBeacon();
+});
+window.addEventListener("pagehide", () => flushSyncQueueBeacon());
 
 async function retryFailedQueue() {
   const queue = loadFailedQueue();
