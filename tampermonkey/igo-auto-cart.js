@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.15
+// @version      0.16
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -222,24 +222,44 @@
     await sleep(600); // 視窗顯示後再多等一下，確保網站把商品資料塞進表單
     await sleep(400); // 等 max 屬性載入完畢
     // 讀取 iGo 現有庫存（max 屬性）
-    const maxStock = qtyInput.max !== "" ? Number(qtyInput.max) : null;
+    // 讀取 iGo 現有庫存：庫存寫在 modal 裡的文字（例如「現有庫存：3」），
+    // 不是 input 的 max 屬性——這個欄位根本沒有 max，原本判斷邏輯讀錯地方，
+    // 導致「庫存不足」的警示從來沒有真的觸發過。
+    const modalBody = qtyInput.closest(".modal-body") || document.querySelector(".modal-body");
+    const stockMatch = (modalBody?.textContent || "").match(/現有庫存[：:]\s*(\d+)/);
+    const maxStock = stockMatch ? Number(stockMatch[1]) : null;
     const needQty  = item.qty;
     const unit     = item.unit || "";
 
     let fillQty = needQty;
     if (maxStock !== null && maxStock < needQty) {
       if (maxStock === 0) {
-        // 完全無庫存：仍嘗試送出需求量（讓 iGo 處理），記錄警告
-        addSkipped(item.name, `缺 ${needQty} ${unit}`);
+        addSkipped(item.name, `缺 ${needQty} ${unit}（iGo 現有庫存 0）`);
       } else {
-        // 部分庫存：填入現有最大量，記錄缺口
         fillQty = maxStock;
-        addSkipped(item.name, `缺 ${needQty - maxStock} ${unit}`);
+        addSkipped(item.name, `缺 ${needQty - maxStock} ${unit}（iGo 現有庫存 ${maxStock}）`);
       }
     }
 
     fill(qtyInput, String(fillQty));
     await sleep(300);
+
+    // 防呆：填完後回頭確認欄位數字有沒有被網站自己偷改（例如它自己驗證
+    // 庫存不足時把數字改回去），確保接下來送出的真的是我們以為填進去的數字
+    const actualVal = Number(qtyInput.value);
+    if (actualVal !== fillQty) {
+      if (actualVal === 0) {
+        addSkipped(item.name, `數量被網站改成 0（原本要填 ${fillQty}，可能實際無庫存）`);
+        const closeBtn0 = document.querySelector("[data-bs-dismiss='modal'], .modal-header .btn-close");
+        if (closeBtn0) closeBtn0.click();
+        await sleep(500);
+        GM_setValue("igo_index", idx + 1);
+        doAddItems();
+        return;
+      }
+      addSkipped(item.name, `數量被網站改成 ${actualVal}（原本要填 ${fillQty}）`);
+      fillQty = actualVal;
+    }
 
     // 確認送出
     const submitBtn = document.querySelector("form#add-to-cart button[type='submit']");
