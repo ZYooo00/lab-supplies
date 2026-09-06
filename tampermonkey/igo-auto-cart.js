@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.13
+// @version      0.14
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -256,25 +256,32 @@
         addSkipped(item.name, "加入按鈕被網站鎖定（可能需手動選規格）");
       } else {
         submitBtn.click();
-        log(`已送出 ${item.igoName} × ${fillQty} ${unit}`);
-        // 記錄實際加入購物車的量
-        const receiptList = JSON.parse(GM_getValue("igo_receipt", "[]"));
-        receiptList.push({ id: item.id, name: item.name, qty: fillQty, unit });
-        GM_setValue("igo_receipt", JSON.stringify(receiptList));
+        log(`已點送出 ${item.igoName} × ${fillQty} ${unit}，等待網站處理…`);
+
+        // 網站送出後按鈕會轉圈圈處理一陣子，不能只等固定時間——
+        // 改成持續盯著看，視窗真的關掉（代表網站確認接受）才算成功，
+        // 最多等 8 秒；沒等到就當作失敗，不要再假設「點了就算數」
+        let closed = false;
+        for (let i = 0; i < 20; i++) { // 20 * 400ms = 8 秒
+          await sleep(400);
+          const stillOpen = document.querySelector("form#add-to-cart");
+          if (!stillOpen || stillOpen.offsetParent === null) { closed = true; break; }
+        }
+
+        if (closed) {
+          log(`已送出 ${item.igoName} × ${fillQty} ${unit}`);
+          const receiptList = JSON.parse(GM_getValue("igo_receipt", "[]"));
+          receiptList.push({ id: item.id, name: item.name, qty: fillQty, unit });
+          GM_setValue("igo_receipt", JSON.stringify(receiptList));
+        } else {
+          addSkipped(item.name, "網站拒絕加入（請留意是否庫存不足或需特殊操作）");
+          const closeBtn = document.querySelector("[data-bs-dismiss='modal'], .modal-header .btn-close");
+          if (closeBtn) closeBtn.click();
+          await sleep(500);
+        }
       }
     } else {
       addSkipped(item.name, "找不到確認送出按鈕");
-    }
-
-    await sleep(2000); // 等 modal 關閉 / 卡片更新，拉長一點給伺服器時間處理
-
-    // 防呆：等完了 modal 還開著，代表網站沒有真的接受這筆加入（不是單純的畫面延遲）
-    const openModal = document.querySelector("form#add-to-cart");
-    if (openModal && openModal.offsetParent !== null) {
-      addSkipped(item.name, "網站拒絕加入（請留意是否庫存不足或需特殊操作）");
-      const closeBtn = document.querySelector("[data-bs-dismiss='modal'], .modal-header .btn-close");
-      if (closeBtn) closeBtn.click();
-      await sleep(500);
     }
 
     // 繼續下一項
