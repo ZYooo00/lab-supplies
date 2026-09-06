@@ -35,6 +35,24 @@ body {
   background: #3a3a3a; border: 1px solid #555; color: #aaa; border-radius: 7px;
   padding: 0 9px; height: 28px; font-size: 11px; cursor: pointer; flex-shrink: 0;
 }
+.hdr label { font-size: 11px; color: #888; flex-shrink: 0; }
+.hdr select {
+  height: 30px; border: 1px solid #444; border-radius: 7px;
+  padding: 0 6px; font-size: 13px; background: #333; color: #fff;
+  -webkit-appearance: none; flex-shrink: 0; width: 78px;
+}
+
+/* Footer：封存已到貨 */
+.ftr {
+  flex-shrink: 0; background: #fff; border-top: 1px solid #e0e0e0;
+  padding: 10px 16px; display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+}
+.ftr .archive-hint { font-size: 12px; color: #888; }
+.btn-archive {
+  height: 40px; padding: 0 20px; background: #34c759; border: none; border-radius: 10px;
+  color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
+}
+.btn-archive:disabled { background: #c8e6c9; cursor: default; }
 
 /* Nav tabs（整合進 header） */
 .nav-tab {
@@ -169,6 +187,15 @@ body {
 <div class="hdr">
   <h1>實驗室耗材_到貨</h1>
   <div class="date-badge">訂購日：<span id="receiptDate">—</span></div>
+  <label>點收人</label>
+  <select id="receiverPicker">
+    <option>Yvette</option><option>Xuan</option><option>Corrine</option>
+    <option>Wilson</option><option>Gordon</option><option>Tini</option>
+    <option>Irene</option><option>Windy</option><option>Linda</option>
+    <option>Harvey</option><option>Lauren</option><option>Tiffany</option>
+    <option>Cara</option><option>Rina</option><option>Alvin</option>
+    <option>Linkin</option><option>Sunny</option><option>Ally</option>
+  </select>
   <div class="sp"></div>
   <span class="summary" id="summaryBadge">—</span>
   <button class="reload-btn" onclick="loadReceipt()">重新載入</button>
@@ -185,6 +212,11 @@ body {
 
 <div class="list-outer" id="listOuter">
   <div class="flow" id="flow"></div>
+</div>
+
+<div class="ftr">
+  <span class="archive-hint" id="archiveHint"></span>
+  <button class="btn-archive" id="btnArchive" onclick="confirmArchive()">封存已到貨</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -228,11 +260,13 @@ function renderAll() {
   if (!allItems.length) {
     flowEl().innerHTML = `<div class="empty-state">目前沒有待核點的訂單<br>請先完成 iGo 下單流程</div>`;
     document.getElementById("summaryBadge").textContent = "無待核點訂單";
+    updateArchiveUI(allItems);
     return;
   }
 
   const pending = allItems.filter(it => !it.done);
   document.getElementById("summaryBadge").textContent = `待核點 ${pending.length}／${allItems.length} 項`;
+  updateArchiveUI(allItems);
 
   const filtered = q ? allItems.filter(it => it.name.toLowerCase().includes(q)) : allItems;
   if (!filtered.length) {
@@ -326,6 +360,54 @@ function buildRow(it) {
         </div>`}
       </div>
     </div>`;
+}
+
+// ── 封存已到貨 ────────────────────────────────────────────────
+function updateArchiveUI(allItems) {
+  const doneCount = (allItems || []).filter(it => it.done).length;
+  const btn = document.getElementById("btnArchive");
+  const hint = document.getElementById("archiveHint");
+  if (!btn) return;
+  btn.disabled = doneCount === 0;
+  hint.textContent = doneCount > 0 ? `${doneCount} 項已全數到齊` : "";
+}
+
+function confirmArchive() {
+  const doneItems = (receiptData?.items || []).filter(it => it.done);
+  if (!doneItems.length) { showToast("目前沒有已全數到齊的品項可封存"); return; }
+
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center";
+  ov.innerHTML = `<div style="background:#fff;border-radius:16px;padding:24px;max-width:320px;width:88%;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <div style="font-size:15px;font-weight:700;margin-bottom:8px;color:#1a1a1a">確定要封存嗎？</div>
+    <div style="font-size:13px;color:#666;margin-bottom:20px;line-height:1.7">確定送出後，會將已全數到齊的 ${doneItems.length} 項物品封存並從畫面移除。</div>
+    <div style="display:flex;gap:10px">
+      <button id="_arCancel" style="flex:1;padding:11px;border:1.5px solid #ddd;border-radius:9px;background:#fff;color:#555;font-size:14px;cursor:pointer">取消</button>
+      <button id="_arConfirm" style="flex:1;padding:11px;border:none;border-radius:9px;background:#34c759;color:#fff;font-size:14px;font-weight:700;cursor:pointer">確認送出</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector("#_arCancel").onclick = () => ov.remove();
+  ov.querySelector("#_arConfirm").onclick = async () => { ov.remove(); await archiveDone(doneItems); };
+  ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
+}
+
+async function archiveDone(doneItems) {
+  const archivedBy = document.getElementById("receiverPicker").value;
+  try {
+    const res = await fetch(GAS_URL, {
+      method: "POST",
+      body: JSON.stringify({ action: "archive-receipt", itemIds: doneItems.map(it => it.id), archivedBy })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "封存失敗");
+    const archivedIds = new Set(doneItems.map(it => it.id));
+    receiptData.items = receiptData.items.filter(it => !archivedIds.has(it.id));
+    showToast(`✅ 已封存 ${doneItems.length} 項`);
+    renderAll();
+  } catch (e) {
+    showToast("封存失敗：" + e.message);
+  }
 }
 
 async function markDone(id, ordered, unit) {
