@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.16
+// @version      0.17
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -138,7 +138,11 @@
         const liveOrder = await fetchGAS("pending-order");
         if (mySessionId && liveOrder.sessionId && liveOrder.sessionId !== mySessionId) {
           GM_setValue("igo_filling", false);
-          showBanner("⚠️ 這份清單已被新訂單取代，請重新整理頁面", "red");
+          showBanner("⚠️ 這份清單已被新訂單取代，即將關閉此分頁", "red");
+          // 這個分頁本來就是 order.html 用 window.open() 開出來的，物理上直接
+          // 關掉它最乾淨，避免使用者誤以為它還在正常運作。瀏覽器擋下的話
+          // window.close() 會靜默失敗，不影響上面已經顯示的提示訊息。
+          setTimeout(() => window.close(), 1500);
           return;
         }
       } catch (e) {
