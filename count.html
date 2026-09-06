@@ -32,6 +32,10 @@ body {
 .hdr input[type="date"] { width: 126px; }
 .hdr select { width: 70px; }
 .hdr .sp { flex: 1; }
+@media (max-width: 768px) {
+  .hdr h1 { display: none; }
+  .hdr select { width: 58px; padding: 0 3px; }
+}
 .hdr .badge { font-size: 12px; color: #aaa; flex-shrink: 0; }
 /* Nav tabs（整合進 header） */
 .nav-tab {
@@ -163,6 +167,15 @@ body {
   <input type="date" id="datePicker">
   <label>盤點人</label>
   <select id="personPicker">
+    <option>Yvette</option><option>Xuan</option><option>Corrine</option>
+    <option>Wilson</option><option>Gordon</option><option>Tini</option>
+    <option>Irene</option><option>Windy</option><option>Linda</option>
+    <option>Harvey</option><option>Lauren</option><option>Tiffany</option>
+    <option>Cara</option><option>Rina</option><option>Alvin</option>
+    <option>Linkin</option><option>Sunny</option><option>Ally</option>
+  </select>
+  <select id="personPicker2">
+    <option value="">（無）</option>
     <option>Yvette</option><option>Xuan</option><option>Corrine</option>
     <option>Wilson</option><option>Gordon</option><option>Tini</option>
     <option>Irene</option><option>Windy</option><option>Linda</option>
@@ -443,6 +456,13 @@ let npActiveId = null, mode = '4w';
 let pendingSyncQueue = {}; // {id: value}，累積後批次送出
 let syncTimer = null;
 
+// 組合「盤點人」欄位：最多兩位，兩個都選了就合併成 "A、B"
+function getCountBy() {
+  const p1 = document.getElementById("personPicker").value;
+  const p2 = document.getElementById("personPicker2").value;
+  return p2 ? `${p1}、${p2}` : p1;
+}
+
 // ── 即時同步：收集器 + 批次送出（1.8 秒收集一次，降低 GAS 併發負擔）──
 
 function setSyncStatus(text, color) {
@@ -478,7 +498,7 @@ async function flushSyncQueue() {
   const ids = Object.keys(pendingSyncQueue);
   if (!ids.length) return true;
   const date = toSD(document.getElementById("datePicker").value);
-  const countBy = document.getElementById("personPicker").value;
+  const countBy = getCountBy();
   const items = ids.map(id => ({ id, value: pendingSyncQueue[id] }));
   pendingSyncQueue = {};
   try {
@@ -832,7 +852,7 @@ async function submitCount() {
   const ok = await showAerationModal();
   if (!ok) return;
   const date = toSD(document.getElementById("datePicker").value);
-  const countBy = document.getElementById("personPicker").value;
+  const countBy = getCountBy();
   const arr = [];
   for (const [id, v] of Object.entries(counts)) {
     const it = allItems.find(i => i.id === id);
