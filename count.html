@@ -189,6 +189,7 @@ body {
     <button id="btn4w" class="mode-btn active" onclick="setMode('4w')">四週</button>
     <button id="btn2w" class="mode-btn" onclick="setMode('2w')">兩週</button>
   </div>
+  <button class="btn-new-count" id="btnManualSync" onclick="manualSync()">🔄 同步</button>
   <span id="submitStatus" class="submit-status"></span>
   <span id="syncStatus" class="submit-status"></span>
   <span class="sp"></span>
@@ -515,6 +516,35 @@ async function flushSyncQueue() {
     return false;
   }
 }
+// 手動同步：先把還沒送出的本機變更 flush 上去，再重新抓雲端當下這個
+// 日期最新的資料覆蓋畫面。給 ZY 一個明確可控的動作，不完全依賴自動判斷。
+async function manualSync() {
+  const btn = document.getElementById("btnManualSync");
+  btn.disabled = true;
+  setSyncStatus("同步中…");
+  try {
+    await flushSyncQueue();
+    await retryFailedQueue();
+    const date = toSD(document.getElementById("datePicker").value);
+    const r = await fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(date)}&_t=${Date.now()}`);
+    const d = await r.json();
+    if (mode !== "2w") {
+      counts = {};
+      if (d.counts) for (const [k, v] of Object.entries(d.counts)) counts[k] = String(v);
+      saveLocal();
+    }
+    refreshAll();
+    if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
+    setSyncStatus("已同步", "#34c759");
+    showToastMsg("✅ 已同步最新資料");
+  } catch (e) {
+    setSyncStatus("⚠️ 同步失敗", "#ff9500");
+    showToastMsg("同步失敗：" + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function retryFailedQueue() {
   const queue = loadFailedQueue();
   if (!queue.length) return true;
