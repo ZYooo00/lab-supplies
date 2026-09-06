@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.12
+// @version      0.13
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -205,20 +205,29 @@
     }
 
     trigger.click();
-    log("已點加入按鈕，等待 Modal 出現…");
+    log("已點加入按鈕，等待 Modal 實際顯示並載入資料…");
 
     // 等 modal 出現並填數量
-    try {
-      await waitFor("form#add-to-cart input[name='quantity']", 5000);
-    } catch {
-      addSkipped(item.name, "Modal 未出現");
+    // 關鍵：不能只等元素「存在於 DOM」，因為 form#add-to-cart 可能是網站共用、
+    // 平常就藏在畫面裡的隱藏表單，一直都查得到；要等它「真的顯示出來
+    // （offsetParent !== null）」，才代表網站已經把這次點的商品資料綁定進去，
+    // 不然填數量、按送出可能是打在一個還沒綁好商品 ID 的空表單上，
+    // 送出後網站默默丟棄，不會報錯，卻也沒有真的加進購物車。
+    let qtyInput = null;
+    for (let i = 0; i < 25; i++) { // 最多等 5 秒
+      const inp = document.querySelector("form#add-to-cart input[name='quantity']");
+      if (inp && inp.offsetParent !== null) { qtyInput = inp; break; }
+      await sleep(200);
+    }
+    if (!qtyInput) {
+      addSkipped(item.name, "Modal 視窗未成功彈出");
       await sleep(400);
       GM_setValue("igo_index", idx + 1);
       doAddItems();
       return;
     }
 
-    const qtyInput = document.querySelector("form#add-to-cart input[name='quantity']");
+    await sleep(600); // 視窗顯示後再多等一下，確保網站把商品資料塞進表單
     await sleep(400); // 等 max 屬性載入完畢
     // 讀取 iGo 現有庫存（max 屬性）
     const maxStock = qtyInput.max !== "" ? Number(qtyInput.max) : null;
