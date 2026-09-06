@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.14
+// @version      0.15
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -182,43 +182,34 @@
       return;
     }
 
-    // 點卡片觸發「加入領料車」視窗。實測整張卡片（含圖片）都可以點開，
-    // 不是靠特定按鈕，所以優先找卡片裡可點的視覺區塊，不用死守特定 class/屬性；
-    // 找不到就等一下再重找一次，避免卡片本體已出現、但內容還沒渲染完
-    const findTrigger = () => card.querySelector("[data-bs-toggle='modal']")
-                            || card.querySelector("a[href*='cart']")
-                            || card.querySelector(".btn:not(.disabled)")
-                            || card.querySelector(".card")   // 卡片本體（點圖片/整張卡都能開視窗）
-                            || card.querySelector("img")     // 商品圖片
-                            || card;                          // 最後手段：整個卡片容器
-    let trigger = findTrigger();
-    if (!trigger) {
-      await sleep(1000);
-      trigger = findTrigger();
-    }
-    if (!trigger) {
-      addSkipped(item.name, "找不到加入按鈕");
-      await sleep(400);
-      GM_setValue("igo_index", idx + 1);
-      doAddItems();
-      return;
-    }
-
-    trigger.click();
-    log("已點加入按鈕，等待 Modal 實際顯示並載入資料…");
-
-    // 等 modal 出現並填數量
-    // 關鍵：不能只等元素「存在於 DOM」，因為 form#add-to-cart 可能是網站共用、
-    // 平常就藏在畫面裡的隱藏表單，一直都查得到；要等它「真的顯示出來
-    // （offsetParent !== null）」，才代表網站已經把這次點的商品資料綁定進去，
-    // 不然填數量、按送出可能是打在一個還沒綁好商品 ID 的空表單上，
-    // 送出後網站默默丟棄，不會報錯，卻也沒有真的加進購物車。
-    let qtyInput = null;
-    for (let i = 0; i < 25; i++) { // 最多等 5 秒
+    // 點卡片觸發「加入領料車」視窗。不同卡片結構不一樣（有些商品是輪播多張圖，
+    // 點圖片可能只是切換照片、不會開視窗；有些是單張圖，點圖片才會開視窗），
+    // 與其賭哪一個元素一定對，改成依序嘗試幾個候選目標，每點一個就立刻檢查
+    // 視窗有沒有真的跳出來，跳出來就停手，沒有就換下一個候選再試。
+    const isModalOpen = () => {
       const inp = document.querySelector("form#add-to-cart input[name='quantity']");
-      if (inp && inp.offsetParent !== null) { qtyInput = inp; break; }
-      await sleep(200);
+      return !!(inp && inp.offsetParent !== null);
+    };
+    const triggerCandidates = [
+      card.querySelector("[data-bs-toggle='modal']"),
+      card.querySelector("a[href*='cart']"),
+      card.querySelector(".btn:not(.disabled)"),
+      card.querySelector(".card-body"), // 卡片文字/庫存資訊區，通常在輪播圖外面
+      card.querySelector(".card"),
+      card.querySelector("img"),
+      card,
+    ].filter(Boolean);
+
+    let qtyInput = null;
+    for (const candidate of triggerCandidates) {
+      candidate.click();
+      for (let i = 0; i < 6 && !isModalOpen(); i++) await sleep(200); // 每個候選給 1.2 秒
+      if (isModalOpen()) {
+        qtyInput = document.querySelector("form#add-to-cart input[name='quantity']");
+        break;
+      }
     }
+
     if (!qtyInput) {
       addSkipped(item.name, "Modal 視窗未成功彈出");
       await sleep(400);
@@ -227,6 +218,7 @@
       return;
     }
 
+    log("已點開 Modal，等待資料載入…");
     await sleep(600); // 視窗顯示後再多等一下，確保網站把商品資料塞進表單
     await sleep(400); // 等 max 屬性載入完畢
     // 讀取 iGo 現有庫存（max 屬性）
