@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.17
+// @version      0.18
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -109,6 +109,7 @@
     if (idx >= items.length) {
       // 全部加完，儲存到貨核點清單到 GAS
       const receipt = JSON.parse(GM_getValue("igo_receipt", "[]"));
+      const skipped = JSON.parse(GM_getValue("igo_skipped", "[]"));
       if (receipt.length > 0) {
         GM_xmlhttpRequest({
           method:  "POST",
@@ -123,7 +124,20 @@
       GM_setValue("igo_filling",   false);
       GM_setValue("igo_completed", true);
       clearGasPendingOrder();
-      showBanner(`✅ 全 ${items.length} 項處理完畢！正在前往領料車…`, "green");
+
+      // 數量校正：成功加入 + 略過的加總理論上應該等於總數。對不起來代表有
+      // 品項在處理過程中發生未預期錯誤而遺漏（沒被記到略過清單），明確警示
+      // 出來，不要讓使用者誤以為「跑完就是全部處理好了」。
+      const accounted = receipt.length + skipped.length;
+      if (accounted !== items.length) {
+        const missing = items.length - accounted;
+        GM_setValue("igo_count_mismatch", String(missing));
+        showBanner(`⚠️ 應處理 ${items.length} 項，但只有 ${accounted} 項有紀錄（成功 ${receipt.length}＋略過 ${skipped.length}），${missing} 項可能中途遺漏，請務必到購物車核對！`, "red");
+        await sleep(5000);
+      } else {
+        GM_deleteValue("igo_count_mismatch");
+        showBanner(`✅ 全 ${items.length} 項處理完畢！正在前往領料車…`, "green");
+      }
       await sleep(3000); // 拉長一點，確保最後一項的加入請求真的跑完再跳頁
       location.href = "/staff/cart/show";
       return;
@@ -161,10 +175,28 @@
       showBanner("⚠️ 等待品項列表逾時", "red"); return;
     }
 
+    // 單項處理邏輯獨立成一個函式：裡面的 return 只結束「這一項」，
+    // 不會影響外層一定會往下一項走的邏輯（見下方 try/catch）。
+    try {
+      await tryAddItem(item);
+    } catch (err) {
+      // 任何未預期的例外（網站結構跟預期不同、DOM 元素瞬間消失、網路瞬斷
+      // 等）都不該讓整個自動化流程安靜地卡死在這一項——記錄成略過並繼續
+      // 下一項，確保最後「成功+略過」的數量一定跟總數量對得起來，不會有
+      // 品項悄悄消失、沒有任何紀錄可查。
+      addSkipped(item.name, "處理時發生未預期錯誤：" + err.message);
+    }
+
+    // 繼續下一項
+    GM_setValue("igo_index", idx + 1);
+    doAddItems();
+  }
+
+  async function tryAddItem(item) {
     // 搜尋
     const searchInput = document.querySelector("div#shuffle-container input[type='text']")
                      || document.querySelector("div.input-group input[type='text']");
-    if (!searchInput) { showBanner("⚠️ 找不到搜尋欄", "red"); return; }
+    if (!searchInput) { addSkipped(item.name, "找不到搜尋欄"); return; }
 
     // 搜尋 + 比對卡片（含一次重試：第一次落空就拉長等待時間再試一次，
     // 因應連續自動化搜尋時網站篩選反應變慢的狀況）
@@ -178,13 +210,7 @@
       await sleep(attempt === 0 ? 800 : 1800); // 等 Shuffle.js 過濾，重試時等更久
       card = findMatchingCard(item.igoName, item.igoSubName);
     }
-    if (!card) {
-      addSkipped(item.name, "找不到品項卡片");
-      await sleep(400);
-      GM_setValue("igo_index", idx + 1);
-      doAddItems();
-      return;
-    }
+    if (!card) { addSkipped(item.name, "找不到品項卡片"); return; }
 
     // 點卡片觸發「加入領料車」視窗。不同卡片結構不一樣（有些商品是輪播多張圖，
     // 點圖片可能只是切換照片、不會開視窗；有些是單張圖，點圖片才會開視窗），
@@ -214,13 +240,7 @@
       }
     }
 
-    if (!qtyInput) {
-      addSkipped(item.name, "Modal 視窗未成功彈出");
-      await sleep(400);
-      GM_setValue("igo_index", idx + 1);
-      doAddItems();
-      return;
-    }
+    if (!qtyInput) { addSkipped(item.name, "Modal 視窗未成功彈出"); return; }
 
     log("已點開 Modal，等待資料載入…");
     await sleep(600); // 視窗顯示後再多等一下，確保網站把商品資料塞進表單
@@ -257,8 +277,6 @@
         const closeBtn0 = document.querySelector("[data-bs-dismiss='modal'], .modal-header .btn-close");
         if (closeBtn0) closeBtn0.click();
         await sleep(500);
-        GM_setValue("igo_index", idx + 1);
-        doAddItems();
         return;
       }
       addSkipped(item.name, `數量被網站改成 ${actualVal}（原本要填 ${fillQty}）`);
@@ -299,10 +317,6 @@
     } else {
       addSkipped(item.name, "找不到確認送出按鈕");
     }
-
-    // 繼續下一項
-    GM_setValue("igo_index", idx + 1);
-    doAddItems();
   }
 
   function addSkipped(name, reason) {
@@ -375,12 +389,21 @@
     const skipped = JSON.parse(GM_getValue("igo_skipped", "[]"));
     GM_deleteValue("igo_skipped");
 
+    // 數量校正警示（見 doAddItems 結尾）：跟略過報告分開顯示，這個代表
+    // 「有品項連略過紀錄都沒有」，比一般略過更嚴重，要特別醒目提示。
+    const mismatch = GM_getValue("igo_count_mismatch", "");
+    GM_deleteValue("igo_count_mismatch");
+    if (mismatch) {
+      showBanner(`🚨 有 ${mismatch} 項在自動化過程中意外中斷、沒有任何處理紀錄，請務必直接檢查購物車內容！`, "red");
+      await sleep(1500);
+    }
+
     if (skipped.length === 0) {
       GM_deleteValue("igo_last_skipped");
-      showBanner("✅ 自動流程完成！所有品項已加入，請確認數量後按「建立領料單」", "green");
+      if (!mismatch) showBanner("✅ 自動流程完成！所有品項已加入，請確認數量後按「建立領料單」", "green");
     } else {
       GM_setValue("igo_last_skipped", JSON.stringify(skipped));
-      showBanner("✅ 自動流程完成！有品項需要注意，請看下方報告", "orange");
+      if (!mismatch) showBanner("✅ 自動流程完成！有品項需要注意，請看下方報告", "orange");
       showSkippedReport(skipped);
     }
   }
