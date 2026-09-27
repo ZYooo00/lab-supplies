@@ -574,6 +574,15 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", () => flushSyncQueueBeacon());
 
+// 離開/重整頁面時若還有未送出的同步佇列，跳出瀏覽器原生確認提示
+// （現代瀏覽器會忽略自訂文字、只顯示公版提示，這是瀏覽器限制，不影響攔截效果）
+window.addEventListener("beforeunload", (e) => {
+  if (Object.keys(pendingSyncQueue).length > 0) {
+    e.preventDefault();
+    e.returnValue = "尚有盤點資料正在同步中，現在離開可能會遺失剛剛點擊的紀錄，確定要離開嗎？";
+  }
+});
+
 async function retryFailedQueue() {
   const queue = loadFailedQueue();
   if (!queue.length) return true;
@@ -660,8 +669,18 @@ function setMode(m) {
   saveLocal(); refreshAll();
   if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
 }
+// 固定補貨量品項的「夠/不夠」轉成 GAS 看得懂的哨兵數字：夠 = safety+1，不夠 = 0。
+// set2w() 即時同步跟 submitCount() 最終送出都呼叫這同一份轉換，避免兩條寫入路徑格式不一致。
+function fixedSentinelValue(it, val) {
+  return val === '2w_ok' ? it.safety + 1 : 0;
+}
 function set2w(id, val) {
-  if (counts[id] === val) { delete counts[id]; } else { counts[id] = val; queueSync(id, val); }
+  if (counts[id] === val) { delete counts[id]; } else {
+    counts[id] = val;
+    const it = allItems.find(i => i.id === id);
+    const syncVal = (it && it.fixed > 0) ? fixedSentinelValue(it, val) : val;
+    queueSync(id, syncVal);
+  }
   saveLocal();
   if (curZone) {
     const it = zoneItems(curZone).find(i => i.id === id);
@@ -788,7 +807,11 @@ function cardHTML(it) {
   // fixed 品項：兩種模式都用夠/不夠（不數實際量）
   if (it.fixed > 0) {
     const v = counts[it.id];
-    const isOk = v === '2w_ok', isNo = v === '2w_no';
+    // v 可能是按鈕點擊留下的字串（'2w_ok'/'2w_no'），也可能是重新整理/手動同步時
+    // 從 GAS 讀回的哨兵數字（夠=safety+1，不夠=0）——兩種來源都要認得，否則
+    // 重新整理後按鈕會變成兩個都沒反白。
+    const isOk = v === '2w_ok' || (v !== '' && v !== undefined && !isNaN(v) && Number(v) > it.safety);
+    const isNo = v === '2w_no' || v === '0';
     return `<div class="${isNo?'card warn':isOk?'card done':'card'}" id="card-${it.id}">
       <div class="c-info">
         <div class="c-name" title="${it.name}">${it.name}</div>
@@ -930,8 +953,7 @@ async function submitCount() {
     const it = allItems.find(i => i.id === id);
     if (!it) continue;
     if (it.fixed > 0) {
-      // 夠/不夠 轉成哨兵數字給 GAS：夠 = safety+1，不夠 = 0
-      arr.push({id, value: v === '2w_ok' ? it.safety + 1 : 0});
+      arr.push({id, value: fixedSentinelValue(it, v)});
     } else {
       const n = +v;
       if (!isNaN(n)) arr.push({id, value: n});
@@ -983,12 +1005,15 @@ async function submit2wOrder() {
   // 有缺貨：存成兩週草稿，交給 order.html 依胚胎室／精蟲室／其他分三張單送出
   const date = toSD(document.getElementById('datePicker').value);
   const items = noItems.map(it => {
-    const qty = it.fixed > 0 ? it.fixed : (it.safety > 0 ? it.safety : it.baseline);
+    let qty = it.fixed > 0 ? it.fixed : (it.safety > 0 ? it.safety : it.baseline);
+    if (!qty || qty <= 0) qty = 1; // 沒設定基準量/安全量時保底叫 1 個，避免整項被靜默排除
+    qty = Number(qty);
     return {
       id: it.id, name: it.name, unit: it.unit, room: it.room || '其他',
       channel: it.channel, igoName: it.igoName || it.name, igoSubName: it.igoSubName || '',
       lineTarget: it.lineTarget || '', suggested: qty, qty,
-      current: null, warning: false, note: it.note || ''
+      current: null, warning: false, note: it.note || '',
+      baseline: it.baseline || 0, safety: it.safety || 0
     };
   });
   const btn = document.getElementById('btnSubmit');

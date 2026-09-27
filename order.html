@@ -248,13 +248,28 @@ const ROOM_ICON  = { '胚胎室': '🧫', '精蟲室': '🧬', '其他': '📦' 
 let roomData = {}; // slug -> { igo:[], line1:[], line2:[], linkin:[] }
 function roomOf(it) { return it.room || '其他'; }
 
+// GAS 偶爾會因為忙碌回傳 HTML 錯誤頁（不是 JSON），這裡統一處理：
+// 先試著解析，失敗就等一下重試一次，還是失敗才顯示白話的錯誤訊息
+async function fetchJsonRetry(url) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res  = await fetch(url);
+      const text = await res.text();
+      try { return JSON.parse(text); }
+      catch (_) { throw new Error("伺服器暫時忙碌（回傳非預期格式）"); }
+    } catch (e) {
+      if (attempt === 0) { await new Promise(r => setTimeout(r, 1200)); continue; }
+      throw new Error("連線不穩定，請稍後再試一次");
+    }
+  }
+}
+
 // ── 載入訂購清單 ──────────────────────────────────────────────
 async function loadOrder() {
   if (new URLSearchParams(location.search).get('src') === '2w') { await load2wOrder(); return; }
   showLoading("載入訂購清單中…");
   try {
-    const res  = await fetch(`${GAS_URL}?action=order&_t=${Date.now()}`);
-    const data = await res.json();
+    const data = await fetchJsonRetry(`${GAS_URL}?action=order&_t=${Date.now()}`);
     if (!data.ok) throw new Error(data.error || "API 回傳錯誤");
     orderData = data;
     if (data.submittedAt) data.date = data.submittedAt;
@@ -267,8 +282,7 @@ async function loadOrder() {
 async function load2wOrder() {
   showLoading("載入兩週盤點訂單…");
   try {
-    const res  = await fetch(`${GAS_URL}?action=get-2w-draft&_t=${Date.now()}`);
-    const data = await res.json();
+    const data = await fetchJsonRetry(`${GAS_URL}?action=get-2w-draft&_t=${Date.now()}`);
     if (!data.items?.length) { showError("找不到兩週盤點訂單，請重新從 count.html 提交"); return; }
     const items = data.items.map(it => ({
       ...it, suggested: it.suggested ?? it.qty ?? 0, current: null, warning: false
@@ -364,6 +378,8 @@ function renderIgo(room, items) {
   const tbody = document.getElementById("igoBody-" + slug);
   tbody.innerHTML = items.map(it => {
     const warnTag = it.warning ? `<span class="warn-tag">⚠️ 低庫存</span>` : "";
+    const configCheckTag = (it.baseline <= 0 && it.safety <= 0)
+      ? `<span class="warn-tag" style="background:#ffe5e5;color:#c00">⚠️ 未設定基準量，請手動確認</span>` : "";
     const crossTag = it.crossRoomOther
       ? `<span class="warn-tag" style="background:#e6f0ff;color:#1a4e8a">↔ ${it.crossRoomOther}也有存放</span>` : "";
     const currentStr = it.rawCurrent !== null && it.rawCurrent !== undefined
@@ -380,7 +396,7 @@ function renderIgo(room, items) {
       : baselineStr;
     return `<tr>
       <td>
-        <div class="item-name">${it.name}${warnTag}${crossTag}</div>
+        <div class="item-name">${it.name}${warnTag}${configCheckTag}${crossTag}</div>
         ${it.note ? `<div class="item-igo" style="color:#f80">${it.note}</div>` : ""}
       </td>
       <td><div class="item-igo" style="font-size:12px;color:#555">${it.igoName || it.name}</div></td>
@@ -462,7 +478,26 @@ async function sendToIgo(room) {
   } catch (e) { /* 檢查失敗就不擋，直接嘗試送出 */ }
 
   if (pending && pending.items && pending.items.length) {
-    showOverwriteGuardModal(room, payload);
+    showOverwriteGuardModal(room, [...payload]);
+    return;
+  }
+
+  await checkReceiptThenSend(room, payload);
+}
+
+// 送出前檢查上一批收貨（③到貨頁）是否還有沒核點完的品項，
+// 有的話先提醒 ZY 再讓他自己決定要不要繼續送（繼續送出後 Tampermonkey
+// 跑完仍會照舊覆蓋 PENDING_RECEIPT，這是預期中的行為，不用改 saveReceipt()）
+async function checkReceiptThenSend(room, payload) {
+  let receipt = null;
+  try {
+    const r = await fetch(`${GAS_URL}?action=receipt&_t=${Date.now()}`);
+    receipt = await r.json();
+  } catch (e) { /* 檢查失敗就不擋，直接嘗試送出 */ }
+
+  const undone = (receipt && receipt.items) ? receipt.items.filter(it => !it.done) : [];
+  if (undone.length) {
+    showReceiptGuardModal(room, [...payload], undone);
     return;
   }
 
@@ -522,6 +557,27 @@ function showOverwriteGuardModal(room, payload) {
   ov.querySelector("#_ogForce").onclick = async () => {
     ov.remove();
     try { await fetch(GAS_URL, { method: "POST", body: JSON.stringify({ action: "clear-pending-order" }) }); } catch (e) {}
+    await checkReceiptThenSend(room, payload);
+  };
+  ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
+}
+
+function showReceiptGuardModal(room, payload, undoneItems) {
+  const list = undoneItems.map(it => it.name).join('、');
+  const ov = document.createElement("div");
+  ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:600;display:flex;align-items:center;justify-content:center";
+  ov.innerHTML = `<div style="background:#fff;border-radius:16px;padding:24px;max-width:340px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,.2)">
+    <div style="font-size:15px;font-weight:700;margin-bottom:8px;color:#1a1a1a">⚠️ 上一批收貨尚未核點完成</div>
+    <div style="font-size:13px;color:#666;margin-bottom:20px;line-height:1.7">③到貨頁還有 ${undoneItems.length} 項尚未核點：${list}。送出這張新訂單、Tampermonkey 跑完後會用新的收貨清單覆蓋掉這批未核點的資料，建議先去③頁確認清楚。</div>
+    <div style="display:flex;gap:10px">
+      <button id="_rgCancel" style="flex:1;padding:10px;border:1.5px solid #ddd;border-radius:9px;background:#fff;color:#555;font-size:13px;font-weight:600;cursor:pointer">先不送，我去③頁確認</button>
+      <button id="_rgProceed" style="padding:10px 14px;border:none;border-radius:9px;background:#f0f0f0;color:#999;font-size:12px;cursor:pointer">我知道了，繼續送出</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector("#_rgCancel").onclick = () => ov.remove();
+  ov.querySelector("#_rgProceed").onclick = async () => {
+    ov.remove();
     await doSendToIgo(room, payload);
   };
   ov.addEventListener("click", e => { if (e.target === ov) ov.remove(); });
