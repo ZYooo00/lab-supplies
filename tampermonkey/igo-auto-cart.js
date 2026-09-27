@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         iGo 耗材自動加購
 // @namespace    zy-embryo-lab
-// @version      0.18
+// @version      0.19
 // @description  從 GAS 取待送清單，自動登入 iGo 並加入購物車，停在結帳頁讓 ZY 自行確認
 // @author       ZY
 // @match        https://tp-igo.e-stork.com.tw/*
@@ -266,7 +266,7 @@
     }
 
     fill(qtyInput, String(fillQty));
-    await sleep(300);
+    await sleep(600); // 網站是 Vue 元件，填完數量後多給一點時間讓內部驗證狀態同步，避免手腳太快被當成空欄位擋下
 
     // 防呆：填完後回頭確認欄位數字有沒有被網站自己偷改（例如它自己驗證
     // 庫存不足時把數字改回去），確保接下來送出的真的是我們以為填進去的數字
@@ -289,17 +289,33 @@
       if (submitBtn.disabled) {
         addSkipped(item.name, "加入按鈕被網站鎖定（可能需手動選規格）");
       } else {
-        submitBtn.click();
-        log(`已點送出 ${item.igoName} × ${fillQty} ${unit}，等待網站處理…`);
-
-        // 網站送出後按鈕會轉圈圈處理一陣子，不能只等固定時間——
-        // 改成持續盯著看，視窗真的關掉（代表網站確認接受）才算成功，
-        // 最多等 8 秒；沒等到就當作失敗，不要再假設「點了就算數」
+        // Vue 網站偶爾會因為手腳太快、內部驗證狀態還沒同步好而擋下第一次送出，
+        // 不是這個品項真的有問題——與其一次卡頓就直接判定失敗，重試送出一次。
+        // 但重試前一定要先確認按鈕已經「恢復成可點擊」，代表上一次真的處理
+        // 完了（被拒絕）；如果按鈕還鎖著，代表可能還在等網站回應中，這時候
+        // 絕對不能再點一次，否則同一個品項可能會被重複加購兩次。
         let closed = false;
-        for (let i = 0; i < 20; i++) { // 20 * 400ms = 8 秒
-          await sleep(400);
-          const stillOpen = document.querySelector("form#add-to-cart");
-          if (!stillOpen || stillOpen.offsetParent === null) { closed = true; break; }
+        for (let attempt = 0; attempt < 2 && !closed; attempt++) {
+          if (attempt > 0) {
+            if (submitBtn.disabled) {
+              log(`按鈕仍處於鎖定狀態，可能上一次還在處理中，不重新點擊，直接判定逾時：${item.igoName}`);
+              break;
+            }
+            log(`第一次送出未成功，重新確認數量並再試一次：${item.igoName}`);
+            fill(qtyInput, String(fillQty));
+            await sleep(600);
+          }
+          submitBtn.click();
+          log(`已點送出 ${item.igoName} × ${fillQty} ${unit}（第 ${attempt + 1} 次），等待網站處理…`);
+
+          // 網站送出後按鈕會轉圈圈處理一陣子，不能只等固定時間——
+          // 改成持續盯著看，視窗真的關掉（代表網站確認接受）才算成功，
+          // 最多等 8 秒；沒等到就當作失敗，不要再假設「點了就算數」
+          for (let i = 0; i < 20; i++) { // 20 * 400ms = 8 秒
+            await sleep(400);
+            const stillOpen = document.querySelector("form#add-to-cart");
+            if (!stillOpen || stillOpen.offsetParent === null) { closed = true; break; }
+          }
         }
 
         if (closed) {
@@ -308,7 +324,7 @@
           receiptList.push({ id: item.id, name: item.name, qty: fillQty, unit });
           GM_setValue("igo_receipt", JSON.stringify(receiptList));
         } else {
-          addSkipped(item.name, "網站拒絕加入（請留意是否庫存不足或需特殊操作）");
+          addSkipped(item.name, "網站拒絕加入（重試過一次仍失敗，請留意是否庫存不足或需特殊操作）");
           const closeBtn = document.querySelector("[data-bs-dismiss='modal'], .modal-header .btn-close");
           if (closeBtn) closeBtn.click();
           await sleep(500);
