@@ -137,6 +137,18 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
 .linkin-qty  { color: #555; }
 .linkin-note { font-size: 11px; color: #aaa; margin-top: 2px; }
 
+/* ── 庫存充足（不需叫貨，只供查看）── */
+.ok-table { width: 100%; border-collapse: collapse; }
+.ok-table th {
+  font-size: 11px; font-weight: 600; color: #888; letter-spacing: .5px;
+  padding: 10px 16px; background: #f9f9f9; border-bottom: 1px solid #eee; text-align: left;
+}
+.ok-table th.num { text-align: right; }
+.ok-table td { padding: 10px 16px; border-bottom: 1px solid #f5f5f5; font-size: 13px; color: #555; }
+.ok-table tr:last-child td { border-bottom: none; }
+.ok-table td.num { text-align: right; }
+.ok-channel { display: inline-block; background: #eef2f7; color: #567; border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 600; }
+
 /* ── Loading / Error ── */
 .status-overlay {
   position: fixed; inset: 0; background: rgba(0,0,0,.3);
@@ -215,6 +227,26 @@ body { font-family: -apple-system, "PingFang TC", sans-serif; background: #f5f5f
       <span class="sec-count" id="linkinCount"></span>
     </div>
     <div class="linkin-list" id="linkinBody"></div>
+  </div>
+
+  <!-- 庫存充足：依最新盤點判定「夠」的品項，不進訂單，只讓人確認有沒有漏 -->
+  <div class="section" id="secOk" style="display:none">
+    <div class="sec-hdr">
+      <span class="sec-icon">✅</span>
+      <span class="sec-title">庫存充足（不需叫貨）</span>
+      <span class="sec-count" id="okCount"></span>
+    </div>
+    <table class="ok-table">
+      <thead>
+        <tr>
+          <th style="width:46%">品項</th>
+          <th style="width:24%">採購管道</th>
+          <th class="num" style="width:15%">現有量</th>
+          <th class="num" style="width:15%">基準 / 安全</th>
+        </tr>
+      </thead>
+      <tbody id="okBody"></tbody>
+    </table>
   </div>
 </div>
 
@@ -314,8 +346,32 @@ function renderAll(data) {
   renderLine("line1", items.filter(it => it.channel === "LINE分生室"));
   renderLine("line2", items.filter(it => it.channel === "LINE艾捷隆"));
   renderLinkin(items.filter(it => it.channel === "linkin"));
+  renderOk(data.okItems || []);
 
   document.getElementById("mainContent").style.display = "";
+}
+
+// ── 庫存充足（唯讀清單，不參與送出）──────────────────────────────
+function renderOk(items) {
+  const sec = document.getElementById("secOk");
+  if (!items.length) { sec.style.display = "none"; return; }
+  sec.style.display = "";
+  document.getElementById("okCount").textContent = `共 ${items.length} 項`;
+
+  document.getElementById("okBody").innerHTML = items.map(it => {
+    const channelStr = it.channel === "iGo" ? `iGo · ${roomOf(it)}` : (it.channel || "—");
+    const currentStr = it.rawCurrent !== null && it.rawCurrent !== undefined
+      ? `${it.rawCurrent}<span class="unit-label">${it.bulkUnit}</span>`
+      : it.current !== null ? `${it.current}<span class="unit-label">${it.unit}</span>` : "—";
+    const baselineStr = it.baseline > 0 ? `${it.baseline}` : "—";
+    const safetyStr   = it.safety   > 0 ? ` / ${it.safety}` : "";
+    return `<tr>
+      <td>${it.name}</td>
+      <td><span class="ok-channel">${channelStr}</span></td>
+      <td class="num">${currentStr}</td>
+      <td class="num">${baselineStr}${safetyStr}<span class="unit-label">${it.unit}</span></td>
+    </tr>`;
+  }).join("");
 }
 
 function roomBlockHTML(room) {
