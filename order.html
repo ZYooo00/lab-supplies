@@ -319,7 +319,13 @@ async function load2wOrder() {
     const items = data.items.map(it => ({
       ...it, suggested: it.suggested ?? it.qty ?? 0, current: null, warning: false
     }));
-    orderData = { ok: true, date: data.date || "", countBy: "兩週盤點", items };
+    // 「庫存充足」清單：向 getOrder 要最新盤點判定為「夠」的品項（失敗就略過，不影響訂單）
+    let okItems = [];
+    try {
+      const od = await fetchJsonRetry(`${GAS_URL}?action=order&_t=${Date.now()}`);
+      if (od.ok) okItems = od.okItems || [];
+    } catch (_) {}
+    orderData = { ok: true, date: data.date || "", countBy: "兩週盤點", items, okItems };
     renderAll(orderData);
     hideOverlay();
   } catch (e) {
