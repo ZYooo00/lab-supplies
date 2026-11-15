@@ -533,7 +533,7 @@ async function manualSync() {
     if (d.ok && d.date === date) {
       if (mode !== "2w") {
         counts = {};
-        if (d.counts) for (const [k, v] of Object.entries(d.counts)) counts[k] = String(v);
+        if (d.counts) for (const [k, v] of Object.entries(d.counts)) { const lv = cloudToLocal(k, v); if (lv !== null) counts[k] = lv; }
         saveLocal();
       }
       refreshAll();
@@ -669,17 +669,32 @@ function setMode(m) {
   saveLocal(); refreshAll();
   if (curZone) { renderCards(zoneItems(curZone)); refreshProg(zoneItems(curZone)); }
 }
-// 固定補貨量品項的「夠/不夠」轉成 GAS 看得懂的哨兵數字：夠 = safety+1，不夠 = 0。
-// set2w() 即時同步跟 submitCount() 最終送出都呼叫這同一份轉換，避免兩條寫入路徑格式不一致。
-function fixedSentinelValue(it, val) {
-  return val === '2w_ok' ? it.safety + 1 : 0;
+// 「夠/不夠」寫進盤點總表時用明確標記（"2w夠" "2w不夠" "4w夠" "4w不夠"），不再用假數字。
+// 夠 = 不叫貨；不夠 = 兩週叫安全量、四週叫基準量，由後端 getOrder 依標記判斷。
+// set2w() 即時同步跟 submitCount() 最終送出都呼叫這同一份轉換。
+function markValue(val) {
+  return mode + (val === '2w_ok' ? '夠' : '不夠');
+}
+// 從雲端讀回來的盤點值轉成畫面用的值：
+// 夠/不夠品項（固定補貨量）→ '2w_ok' / '2w_no'；一般品項只收數字，標記文字略過（回傳 null）。
+function cloudToLocal(id, v) {
+  const it = allItems.find(i => i.id === id);
+  const s = String(v);
+  const m = s.match(/^(2w|4w)(夠|不夠)$/);
+  const isMark = !!m || s === '2w_ok' || s === '2w_no';
+  if (it && it.fixed > 0) {
+    if (m) return m[2] === '夠' ? '2w_ok' : '2w_no';
+    if (isMark) return s;
+    if (s === '' || isNaN(s)) return null;
+    return Number(s) > it.safety ? '2w_ok' : '2w_no'; // 舊格式哨兵：夠 = 安全量+1、不夠 = 0
+  }
+  if (isMark || s === '' || isNaN(s)) return null;
+  return s;
 }
 function set2w(id, val) {
   if (counts[id] === val) { delete counts[id]; } else {
     counts[id] = val;
-    const it = allItems.find(i => i.id === id);
-    const syncVal = (it && it.fixed > 0) ? fixedSentinelValue(it, val) : val;
-    queueSync(id, syncVal);
+    queueSync(id, markValue(val));
   }
   saveLocal();
   if (curZone) {
@@ -730,14 +745,14 @@ async function init() {
   try {
     const cr = await fetch(`${GAS_URL}?action=latest-count&date=${encodeURIComponent(toSD(dp.value))}`);
     const cd = await cr.json();
-    if (!loadedFromLocal && cd.counts && mode !== '2w') { counts = {}; for (const [k,v] of Object.entries(cd.counts)) counts[k] = String(v); }
+    if (!loadedFromLocal && cd.counts && mode !== '2w') { counts = {}; for (const [k,v] of Object.entries(cd.counts)) { const lv = cloudToLocal(k, v); if (lv !== null) counts[k] = lv; } }
   } catch(e) { console.warn("GAS count failed:", e); }
 
   // 離線保護：只用同一天的離線暫存資料覆蓋畫面，避免蓋掉雲端其他天的資料，也避免跨日誤植
   const todaySD = toSD(dp.value);
   loadFailedQueue().forEach(batch => {
     if (batch.date !== todaySD) return;
-    (batch.items || []).forEach(it => { counts[it.id] = String(it.value); });
+    (batch.items || []).forEach(it => { const lv = cloudToLocal(it.id, it.value); if (lv !== null) counts[it.id] = lv; });
   });
 
   refreshAll();
@@ -810,8 +825,8 @@ function cardHTML(it) {
     // v 可能是按鈕點擊留下的字串（'2w_ok'/'2w_no'），也可能是重新整理/手動同步時
     // 從 GAS 讀回的哨兵數字（夠=safety+1，不夠=0）——兩種來源都要認得，否則
     // 重新整理後按鈕會變成兩個都沒反白。
-    const isOk = v === '2w_ok' || (v !== '' && v !== undefined && !isNaN(v) && Number(v) > it.safety);
-    const isNo = v === '2w_no' || v === '0';
+    const isOk = v === '2w_ok';
+    const isNo = v === '2w_no';
     return `<div class="${isNo?'card warn':isOk?'card done':'card'}" id="card-${it.id}">
       <div class="c-info">
         <div class="c-name" title="${it.name}">${it.name}</div>
@@ -953,7 +968,7 @@ async function submitCount() {
     const it = allItems.find(i => i.id === id);
     if (!it) continue;
     if (it.fixed > 0) {
-      arr.push({id, value: fixedSentinelValue(it, v)});
+      if (v === '2w_ok' || v === '2w_no') arr.push({id, value: markValue(v)});
     } else {
       const n = +v;
       if (!isNaN(n)) arr.push({id, value: n});
@@ -969,7 +984,7 @@ async function submitCount() {
       const lowItems = arr.filter(item => {
         const it = allItems.find(i => i.id === item.id);
         if (!it) return false;
-        if (it.fixed > 0) return item.value === 0;
+        if (it.fixed > 0) return String(item.value).includes('不夠');
         if (it.backupZone && !it.isBackup) return item.value === 0;
         return it.safety > 0 && item.value < it.safety;
       });
@@ -1005,7 +1020,9 @@ async function submit2wOrder() {
   // 有缺貨：存成兩週草稿，交給 order.html 依胚胎室／精蟲室／其他分三張單送出
   const date = toSD(document.getElementById('datePicker').value);
   const items = noItems.map(it => {
-    let qty = it.fixed > 0 ? it.fixed : (it.safety > 0 ? it.safety : it.baseline);
+    // 分裝品項（非備存位置）的安全量/基準量在 Sheets 是小單位，要換成採購單位才是訂貨量
+    const cv = v => (it.isBulk && !it.isBackup && v > 0) ? Math.max(1, Math.floor(v / it.ratio)) : v;
+    let qty = it.fixed > 0 ? it.fixed : (it.safety > 0 ? cv(it.safety) : cv(it.baseline));
     if (!qty || qty <= 0) qty = 1; // 沒設定基準量/安全量時保底叫 1 個，避免整項被靜默排除
     qty = Number(qty);
     return {
